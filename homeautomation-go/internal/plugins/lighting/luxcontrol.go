@@ -54,6 +54,7 @@ type luxCommand struct {
 	cansPct         float64
 	cansKelvin      int
 	cctFloorPct     float64
+	cctCeilingPct   float64
 	estimatedKelvin int
 }
 
@@ -605,10 +606,10 @@ func (m *Manager) handleFollowerChange(room *RoomConfig, newState *ha.State) {
 }
 
 // luxDriveFollowers sets each follower light from the cans command: floor + gain * cans percent,
-// raised to the brightness its cct_curve needs for the cans' color temperature,
-// or off when the cans are off. The minimum-step rule compares against the follower's own last
-// command, so a strip is not told to move on every tick. In log_only and READ_ONLY mode the
-// command is recorded and not sent.
+// raised to the brightness its cct_curve needs for the cans' color temperature and capped at the
+// brightest setting that is not cooler than it, or off when the cans are off. The minimum-step rule
+// compares against the follower's own last command, so a strip is not told to move on every tick.
+// In log_only and READ_ONLY mode the command is recorded and not sent.
 func (m *Manager) luxDriveFollowers(room *RoomConfig, st *luxRoomState, cans *luxCommand) {
 	send := luxActive(room) && !m.readOnly
 	for _, f := range room.LuxControl.FollowerLights {
@@ -617,7 +618,8 @@ func (m *Manager) luxDriveFollowers(room *RoomConfig, st *luxRoomState, cans *lu
 			next.pct = f.followerPct(cans.pct)
 			next.cansPct, next.cansKelvin = cans.pct, cans.kelvin
 			next.cctFloorPct = f.cctFloorPct(cans.kelvin)
-			next.pct = math.Min(100, math.Max(next.pct, math.Round(next.cctFloorPct)))
+			next.cctCeilingPct = f.cctCeilingPct(cans.kelvin)
+			next.pct = math.Min(math.Round(next.cctCeilingPct), math.Max(next.pct, math.Round(next.cctFloorPct)))
 			next.estimatedKelvin = f.estimateKelvin(next.pct)
 		}
 		m.luxMu.Lock()
@@ -687,6 +689,7 @@ func (m *Manager) sendFollowerCommand(room *RoomConfig, entity string, cmd *luxC
 		zap.Float64("cans_pct", cmd.cansPct),
 		zap.Int("target_kelvin", cmd.cansKelvin),
 		zap.Float64("cct_floor_pct", cmd.cctFloorPct),
+		zap.Float64("cct_ceiling_pct", cmd.cctCeilingPct),
 		zap.Int("estimated_kelvin", cmd.estimatedKelvin))
 	return m.haClient.CallService(m.ctx, "light", service, data)
 }
@@ -707,6 +710,11 @@ func (m *Manager) followerStates(room *RoomConfig) map[string]shadowstate.Follow
 			fs.CansPct = c.cansPct
 			fs.TargetKelvin = c.cansKelvin
 			fs.CCTFloorPct = c.cctFloorPct
+			// CCTCeilingPct needs an explicit guard: cctCeilingPct returns 100 (not 0) when there
+			// is no curve, and 100 is non-zero so omitempty would not suppress it.
+			if len(f.CCTCurve) > 0 {
+				fs.CCTCeilingPct = c.cctCeilingPct
+			}
 			fs.EstimatedKelvin = c.estimatedKelvin
 		}
 		out[f.Entity] = fs

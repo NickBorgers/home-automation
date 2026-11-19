@@ -39,6 +39,25 @@ func TestStripCCT_FloorInterpolatesAndClamps(t *testing.T) {
 	assert.Zero(t, LuxFollower{}.cctFloorPct(4000), "no curve, no floor")
 }
 
+func TestStripCCT_CeilingInterpolatesAndClamps(t *testing.T) {
+	t.Parallel()
+	f := LuxFollower{CCTCurve: kitchenStripCurve}
+	for _, tc := range []struct {
+		kelvin int
+		want   float64
+	}{
+		{0, 100},     // brightness-only room: no target, no cap
+		{2000, 49},   // warmer than the warmest point: any brighter setting is cooler still
+		{3000, 49},   // the warmest measured point
+		{3125, 62.5}, // halfway between 49 and 76, the same as the floor
+		{4000, 100},
+		{6000, 100},
+	} {
+		assert.InDelta(t, tc.want, f.cctCeilingPct(tc.kelvin), 1e-9, "%d K", tc.kelvin)
+	}
+	assert.Equal(t, 100.0, LuxFollower{}.cctCeilingPct(3000), "no curve, no cap")
+}
+
 func TestStripCCT_EstimateInterpolatesAndClamps(t *testing.T) {
 	t.Parallel()
 	f := LuxFollower{CCTCurve: kitchenStripCurve}
@@ -133,8 +152,8 @@ func TestStripCCT_CoolTargetRaisesStripAboveTheBrightnessCurve(t *testing.T) {
 	assert.NotContains(t, strip[0].Data, "color_temp_kelvin", "the strip stays brightness-only")
 }
 
-// The brightness curve and the CCT curve diverge: a warm evening target, a bright brightness curve.
-func TestStripCCT_WarmTargetLeavesTheBrightnessCurveInCharge(t *testing.T) {
+// A warm night target: the brightness curve decides, capped at the brightness that is not cooler than the cans.
+func TestStripCCT_WarmTargetCapsTheBrightnessCurve(t *testing.T) {
 	t.Parallel()
 	m, env, clk := newProductionRoomFixture(t)
 	room := findRoom(m.config, "Kitchen")
@@ -148,8 +167,13 @@ func TestStripCCT_WarmTargetLeavesTheBrightnessCurveInCharge(t *testing.T) {
 	require.Len(t, cans, 1)
 	f := room.LuxControl.FollowerLights[0]
 	cansPct := float64(cans[0].Data["brightness_pct"].(int))
-	floor := f.cctFloorPct(cans[0].Data["color_temp_kelvin"].(int))
-	assert.Equal(t, max(f.followerPct(cansPct), float64(int(floor+0.5))), float64(strip[0].Data["brightness_pct"].(int)))
+	kelvin := cans[0].Data["color_temp_kelvin"].(int)
+	floor, ceiling := f.cctFloorPct(kelvin), f.cctCeilingPct(kelvin)
+	want := min(float64(int(ceiling+0.5)), max(f.followerPct(cansPct), float64(int(floor+0.5))))
+	assert.Equal(t, want, float64(strip[0].Data["brightness_pct"].(int)))
+	// max(kelvin, 3000): a sub-3000 K target holds the strip at the warmest point (3000 K), so
+	// the invariant is estimatedKelvin ≤ 3000, not ≤ kelvin.
+	assert.LessOrEqual(t, f.estimateKelvin(want), max(kelvin, 3000), "the strip is not cooler than the cans")
 }
 
 func TestStripCCT_RecomputesAsTheCansKelvinMoves(t *testing.T) {

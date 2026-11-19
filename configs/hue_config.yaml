@@ -270,8 +270,8 @@ rooms:
       # floor_pct 20 and gain 0.8 are USER-CHOSEN STARTING GUESSES (cans 100% -> 100%, 50% -> 60%,
       # 10% -> 28%). Tune later.
       # WARNING: this strip is dim-to-warm. Its color temperature follows its brightness (warmer as it
-      # dims). cct_curve (below) lets the plugin keep the strip at least as bright as the cans'
-      # color temperature needs, so a cool target cannot leave the strip too warm.
+      # dims). cct_curve (below) keeps the strip at the brightness that matches the cans' color
+      # temperature: never dimmer (too warm) and never brighter (too cool).
       follower_lights:
         - entity: light.kitchen_main_lights # Kitchen Under Cabinet
           floor_pct: 20
