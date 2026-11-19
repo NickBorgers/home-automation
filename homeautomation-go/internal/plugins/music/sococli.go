@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -46,10 +47,11 @@ type SoCoResponse struct {
 // for time-sensitive operations like volume fades, group join/unjoin, and playback.
 // It also reads current volume and playback status, so speakers need no HA entity.
 type SoCoClient struct {
-	baseURL    string
-	httpClient *http.Client
-	logger     *zap.Logger
-	readOnly   bool
+	baseURL     string
+	httpClient  *http.Client
+	logger      *zap.Logger
+	readOnly    bool
+	operationID atomic.Uint64
 }
 
 // NewSoCoClient creates a new SoCo-CLI HTTP client.
@@ -334,6 +336,9 @@ func (c *SoCoClient) GetVolume(speakerName string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("sococli volume: unexpected result %q for %s: %w", result, speakerName, err)
 	}
+	if volume < 0 || volume > 100 {
+		return 0, fmt.Errorf("sococli volume: result %d for %s is outside 0-100", volume, speakerName)
+	}
 	return volume, nil
 }
 
@@ -430,6 +435,7 @@ func (c *SoCoClient) doGetWithRetry(endpoint, action, speaker string, attemptTim
 				zap.String("action", action),
 				zap.String("speaker", speaker),
 				zap.Int("attempt", attempt+1),
+				zap.Int("total_attempts", socoMaxRetries+1),
 				zap.Error(lastErr))
 			time.Sleep(socoRetryDelay)
 		}
@@ -486,10 +492,17 @@ func (c *SoCoClient) doGetCtx(ctx context.Context, endpoint, action, speaker str
 
 // doGetResultCtx performs a GET request and returns the parsed SoCo-CLI response.
 func (c *SoCoClient) doGetResultCtx(ctx context.Context, endpoint, action, speaker string) (*SoCoResponse, error) {
-	c.logger.Debug("SoCo-CLI request",
+	started := time.Now()
+	correlationID := fmt.Sprintf("soco-%d", c.operationID.Add(1))
+	endpointPath := endpoint
+	if parsed, err := url.Parse(endpoint); err == nil {
+		endpointPath = parsed.EscapedPath()
+	}
+	c.logger.Info("SoCo-CLI request started",
+		zap.String("correlation_id", correlationID),
 		zap.String("action", action),
 		zap.String("speaker", speaker),
-		zap.String("url", endpoint))
+		zap.String("endpoint", endpointPath))
 
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
@@ -498,34 +511,82 @@ func (c *SoCoClient) doGetResultCtx(ctx context.Context, endpoint, action, speak
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		c.logOperationFailure(correlationID, action, speaker, endpointPath, started, 0, err)
 		return nil, fmt.Errorf("sococli %s request failed: %w", action, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		c.logOperationFailure(correlationID, action, speaker, endpointPath, started, resp.StatusCode, err)
 		return nil, fmt.Errorf("sococli %s: failed to read response body: %w", action, err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("sococli %s returned HTTP %d: %s", action, resp.StatusCode, string(body))
+		err = fmt.Errorf("sococli %s returned HTTP %d: %.512s", action, resp.StatusCode, string(body))
+		c.logOperationFailure(correlationID, action, speaker, endpointPath, started, resp.StatusCode, err)
+		return nil, err
 	}
 
 	var socoResp SoCoResponse
 	if err := json.Unmarshal(body, &socoResp); err != nil {
+		c.logOperationFailure(correlationID, action, speaker, endpointPath, started, resp.StatusCode, err)
 		return nil, fmt.Errorf("sococli %s: failed to parse response: %w", action, err)
 	}
 
 	if socoResp.ExitCode != 0 {
-		return nil, fmt.Errorf("sococli %s failed (exit_code=%d): %s", action, socoResp.ExitCode, socoResp.ErrorMsg)
+		err = fmt.Errorf("sococli %s failed (exit_code=%d): %s", action, socoResp.ExitCode, socoResp.ErrorMsg)
+		c.logOperationFailure(correlationID, action, speaker, endpointPath, started, resp.StatusCode, err)
+		return nil, err
 	}
 
-	c.logger.Debug("SoCo-CLI response",
+	c.logger.Info("SoCo-CLI request completed",
+		zap.String("correlation_id", correlationID),
 		zap.String("action", action),
 		zap.String("speaker", speaker),
+		zap.String("endpoint", endpointPath),
+		zap.Duration("duration", time.Since(started)),
+		zap.Int("http_status", resp.StatusCode),
+		zap.Int("exit_code", socoResp.ExitCode),
+		zap.String("response_action", socoResp.Action),
 		zap.String("result", socoResp.Result))
 
 	return &socoResp, nil
+}
+
+func (c *SoCoClient) logOperationFailure(correlationID, action, speaker, endpoint string, started time.Time, status int, err error) {
+	c.logger.Warn("SoCo-CLI request failed",
+		zap.String("correlation_id", correlationID),
+		zap.String("action", action),
+		zap.String("speaker", speaker),
+		zap.String("endpoint", endpoint),
+		zap.Duration("duration", time.Since(started)),
+		zap.Int("http_status", status),
+		zap.String("error_class", classifySoCoError(err)),
+		zap.Error(err))
+}
+
+func classifySoCoError(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(s, "no route to host"):
+		return "no_route"
+	case strings.Contains(s, "connection refused"):
+		return "connection_refused"
+	case strings.Contains(s, "deadline exceeded"), strings.Contains(s, "timed out"), strings.Contains(s, "timeout"):
+		return "timeout"
+	case strings.Contains(s, "returned http 5"):
+		return "http_5xx"
+	case strings.Contains(s, "failed to parse"), strings.Contains(s, "invalid character"):
+		return "parse_error"
+	case strings.Contains(s, "exit_code"):
+		return "upnp_error"
+	default:
+		return "request_error"
+	}
 }
 
 // getResult performs a GET with retries and returns the SoCo-CLI result string.

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"homeautomation/internal/plugins/music"
+	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/require"
@@ -39,6 +40,27 @@ import (
 // ============================================================================
 
 const startRetryRainURI = "http://rain.test/playlists/sleep-rain-1.m3u"
+
+const fadeVerificationMusicConfig = `
+zones:
+  - name: "morning"
+    priority: 50
+    trigger:
+      - variable: dayPhase
+        value: morning
+      - variable: isAnyoneHome
+        value: true
+music:
+  morning:
+    participants:
+      - player_name: "Pantry"
+        base_volume: 9
+        leave_muted_if: []
+    playback_options:
+      - uri: "https://tidal.com/browse/playlist/fade-test"
+        media_type: tidal
+        volume_multiplier: 1.0
+`
 
 const startRetryMusicConfig = `
 zones:
@@ -126,12 +148,13 @@ type fakeSonosSpeaker struct {
 // plugin's start sequence. A speaker marked unreachable answers every request
 // with a SoCo error, as Pantry did during the incident.
 type fakeSoCoServer struct {
-	mu          sync.Mutex
-	speakers    map[string]*fakeSonosSpeaker
-	unreachable map[string]bool
-	failedCalls map[string]int // "speaker/action" -> count of refused requests
-	calls       map[string]int // "speaker/action" -> count of answered requests
-	groups      string         // what the groups action reports
+	mu                sync.Mutex
+	speakers          map[string]*fakeSonosSpeaker
+	unreachable       map[string]bool
+	failedCalls       map[string]int // "speaker/action" -> count of refused requests
+	calls             map[string]int // "speaker/action" -> count of answered requests
+	groups            string         // what the groups action reports
+	ignoreVolumeValue int            // acknowledge this setter without changing speaker state
 }
 
 func newFakeSoCoServer() *fakeSoCoServer {
@@ -234,12 +257,23 @@ func (f *fakeSoCoServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			reply(0, strconv.Itoa(s.volume), "")
 			return
 		}
-		s.volume, _ = strconv.Atoi(args[0])
+		requested, _ := strconv.Atoi(args[0])
+		if requested != f.ignoreVolumeValue {
+			s.volume = requested
+		} else {
+			s.volume = 0
+		}
 	case "clear_queue":
 		s.queue = nil
 		s.transport = "STOPPED"
 	case "add_uri_to_queue":
-		s.queue = append(s.queue, strings.Join(args, "/"))
+		uri := strings.Join(args, "/")
+		s.queue = append(s.queue, uri)
+		s.currentURI = uri
+	case "sharelink":
+		uri := strings.Join(args, "/")
+		s.queue = append(s.queue, uri)
+		s.currentURI = uri
 	case "play_from_queue", "play":
 		if len(s.queue) == 0 {
 			reply(1, "", "queue is empty")
@@ -257,8 +291,70 @@ func (f *fakeSoCoServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "groups":
 		reply(0, f.groups, "")
 		return
+	case "group":
+		if len(args) > 0 {
+			f.groups = args[0] + ": " + speaker
+		}
 	}
 	reply(0, "", "")
+}
+
+// TestScenario_MusicFade_DoesNotReportCompletionUntilVolumeConverges reproduces
+// the 2026-11-19 wake incident where SoCo acknowledged every setter but Sonos
+// remained at volume zero.
+//
+// INVARIANT: A fade is complete only when a read-back confirms its final volume.
+func TestScenario_MusicFade_DoesNotReportCompletionUntilVolumeConverges(t *testing.T) {
+	t.Parallel()
+
+	server, client, stateManager, cleanup := setupTest(t)
+	defer cleanup()
+
+	var musicConfig music.MusicConfig
+	require.NoError(t, yaml.Unmarshal([]byte(fadeVerificationMusicConfig), &musicConfig))
+
+	soco := newFakeSoCoServer()
+	soco.ignoreVolumeValue = 9
+	soco.setPlaying("Pantry", "", 0)
+	socoServer := httptest.NewServer(soco)
+	defer socoServer.Close()
+
+	logger := testlogger.New()
+	musicMgr := music.NewManager(context.Background(), client, stateManager, &musicConfig, logger, false, nil, nil)
+	musicMgr.SetSleepFunc(func(time.Duration) {})
+	musicMgr.SetSoCoClient(music.NewSoCoClient(socoServer.URL, logger, false))
+	musicMgr.SetDebounceDelay(0)
+
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
+	server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})
+	server.SetState("input_text.day_phase", "night", map[string]interface{}{})
+	require.NoError(t, musicMgr.Start())
+	defer musicMgr.Stop()
+	waitForProcessing(t, stateManager)
+
+	t.Log("GIVEN: SoCo acknowledges volume writes but the speaker remains at volume zero")
+	t.Log("WHEN: Morning starts and Pantry fades toward its configured volume")
+	server.SetState("input_text.day_phase", "morning", map[string]interface{}{})
+
+	t.Log("THEN: The fade is recorded as state_not_converged, not completed")
+	waitForCondition(t, func() bool {
+		for _, fade := range musicMgr.GetShadowState().Outputs.FadeInProgress {
+			if fade.SpeakerName == "Pantry" && !fade.IsActive && fade.Outcome == "state_not_converged" {
+				return true
+			}
+		}
+		return false
+	}, "fade should retain its failed verification outcome")
+
+	var fade shadowstate.SpeakerFadeIn
+	for _, candidate := range musicMgr.GetShadowState().Outputs.FadeInProgress {
+		if candidate.SpeakerName == "Pantry" {
+			fade = candidate
+		}
+	}
+	require.Equal(t, 9, fade.ExpectedVolume)
+	require.Equal(t, 0, fade.ActualVolume)
 }
 
 // zonePlaybackStatus returns the playback status of an active zone, or "" if

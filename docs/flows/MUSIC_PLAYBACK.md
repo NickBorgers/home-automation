@@ -363,6 +363,16 @@ even while the master sleeps.
 
 Speakers fade in gradually to avoid sudden loud sounds:
 
+The final fade write is followed by up to three SoCo volume reads. A fade is recorded as `verified` only when
+the observed volume equals the target. If SoCo-CLI acknowledges the setter but the speaker retains another
+value, logs report `command_succeeded_but_state_not_converged` and `fadeInProgress` retains the requested and
+observed values with outcome `state_not_converged`. Intermediate 1% steps are not read back, so verification
+does not lengthen every step.
+
+SoCo follower joins are likewise read back through the coordinator's `groups` response before the follower is
+marked active in `speakerGroup`. An acknowledged join that is absent from physical membership remains inactive
+with its convergence failure in shadow state.
+
 ```mermaid
 flowchart LR
     subgraph FadeIn["Fade-In Process"]

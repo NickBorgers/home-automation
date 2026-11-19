@@ -315,6 +315,7 @@ func (m *Manager) recordFadeInHumanOverride(entityID string, expectedVolume, act
 		fadeIn.HumanOverrideDetected = true
 		fadeIn.ExpectedVolume = expectedVolume
 		fadeIn.ActualVolume = actualVolume
+		fadeIn.Outcome = "human_override"
 		fadeIn.IsActive = false
 		fadeIn.LastUpdate = m.timeProvider.Now()
 		m.shadowState.Outputs.FadeInProgress[entityID] = fadeIn
@@ -332,6 +333,25 @@ func (m *Manager) recordFadeInHumanOverride(entityID string, expectedVolume, act
 		m.shadowState.Outputs.FadeState = "idle"
 	}
 
+	m.shadowState.Metadata.LastUpdated = m.timeProvider.Now()
+}
+
+// recordFadeInVerification records the observed final speaker state. Keeping a
+// failed result in shadow state makes an acknowledged command distinguishable
+// from a physical speaker that actually converged.
+func (m *Manager) recordFadeInVerification(entityID, outcome string, expectedVolume, actualVolume int) {
+	m.shadowMu.Lock()
+	defer m.shadowMu.Unlock()
+
+	if fadeIn, exists := m.shadowState.Outputs.FadeInProgress[entityID]; exists {
+		fadeIn.IsActive = false
+		fadeIn.Outcome = outcome
+		fadeIn.ExpectedVolume = expectedVolume
+		fadeIn.ActualVolume = actualVolume
+		fadeIn.LastUpdate = m.timeProvider.Now()
+		m.shadowState.Outputs.FadeInProgress[entityID] = fadeIn
+	}
+	m.shadowState.Outputs.FadeState = "idle"
 	m.shadowState.Metadata.LastUpdated = m.timeProvider.Now()
 }
 

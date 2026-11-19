@@ -378,6 +378,9 @@ func (m *Manager) joinSpeakerWithRetry(p ParticipantWithVolume, leadSpeakerName 
 	var joinErr error
 	for attempt := 1; attempt <= maxAsyncSpeakerRetries; attempt++ {
 		joinErr = m.speakerJoinGroup(p.PlayerName, leadSpeakerName)
+		if joinErr == nil && m.socoClient != nil {
+			joinErr = m.verifyGroupMembership(leadSpeakerName, p.PlayerName)
+		}
 
 		if joinErr == nil {
 			m.logger.Info("Speaker joined group (async)",
@@ -450,6 +453,36 @@ func (m *Manager) joinSpeakerWithRetry(p ParticipantWithVolume, leadSpeakerName 
 	}
 
 	return nil
+}
+
+func (m *Manager) verifyGroupMembership(leadSpeakerName, followerName string) error {
+	var members []string
+	var err error
+	for attempt := 1; attempt <= fadeVerificationAttempts; attempt++ {
+		members, err = m.socoClient.GetGroupMembers(leadSpeakerName)
+		if err == nil && containsSpeaker(members, leadSpeakerName) && containsSpeaker(members, followerName) {
+			m.logger.Info("Speaker group membership verified",
+				zap.String("lead", leadSpeakerName), zap.String("speaker", followerName), zap.Strings("active_speakers", members))
+			return nil
+		}
+		if attempt < fadeVerificationAttempts {
+			m.sleepFunc(socoRetryDelay)
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("verify group membership: %w", err)
+	}
+	return fmt.Errorf("command_succeeded_but_state_not_converged: %s missing from %s group (active=%v)",
+		followerName, leadSpeakerName, members)
+}
+
+func containsSpeaker(speakers []string, wanted string) bool {
+	for _, speaker := range speakers {
+		if speaker == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 // shouldIncludeInZone determines if a speaker should be included in the zone at all.
@@ -526,6 +559,8 @@ func (m *Manager) shouldUnmuteSpeaker(participant ParticipantWithVolume) bool {
 // Using 1% because Sonos physical controls change volume by exactly 1% per input,
 // so a single button press should be enough to signal the user is fighting the fade.
 const humanOverrideThreshold = 1
+
+const fadeVerificationAttempts = 3
 
 // cancelAllFadeIns cancels all active fade-in goroutines.
 // This should be called before starting new fade-ins to prevent:
@@ -748,6 +783,28 @@ func (m *Manager) fadeInSpeaker(ctx context.Context, speakerName string, targetV
 		}
 	}
 
+	// A successful HTTP response only proves SoCo-CLI accepted the command. Read
+	// the final state back before claiming that the physical speaker converged.
+	observedVolume := -1
+	for attempt := 1; attempt <= fadeVerificationAttempts; attempt++ {
+		observedVolume = m.getSpeakerVolume(speakerName)
+		if observedVolume == targetVolume {
+			break
+		}
+		if attempt < fadeVerificationAttempts {
+			m.sleepFunc(socoRetryDelay)
+		}
+	}
+	if observedVolume != targetVolume {
+		m.logger.Warn("Fade-in commands completed; verification failed",
+			zap.String("speaker", speakerName),
+			zap.Int("requested_volume", targetVolume),
+			zap.Int("observed_volume", observedVolume),
+			zap.String("result", "command_succeeded_but_state_not_converged"))
+		m.recordFadeInVerification(entityID, "state_not_converged", targetVolume, observedVolume)
+		return
+	}
+
 	// Log completion with failure summary if any failures occurred
 	if totalFailures > 0 {
 		m.logger.Warn("Fade-in completed with some failures",
@@ -760,8 +817,8 @@ func (m *Manager) fadeInSpeaker(ctx context.Context, speakerName string, targetV
 			zap.Int("final_volume", targetVolume))
 	}
 
-	// Mark fade-in as complete
-	m.clearFadeInProgress(entityID)
+	// Mark fade-in as complete only after the read-back succeeds.
+	m.recordFadeInVerification(entityID, "verified", targetVolume, observedVolume)
 }
 
 // getSpeakerVolume queries the current volume of a speaker by name.

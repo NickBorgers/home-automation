@@ -2,6 +2,7 @@ package music
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -756,4 +757,30 @@ func TestIsRetryableError(t *testing.T) {
 			assert.Equal(t, tt.retryable, isRetryableError(tt.err))
 		})
 	}
+}
+
+func TestClassifySoCoError(t *testing.T) {
+	t.Parallel()
+	tests := map[string]string{
+		"dial tcp: connect: connection refused":                           "connection_refused",
+		"dial tcp 10.0.0.2:1400: connect: no route to host":               "no_route",
+		"context deadline exceeded":                                       "timeout",
+		"sococli group returned HTTP 500: internal server error":          "http_5xx",
+		"sococli volume failed (exit_code=1): UPnP Error 701":             "upnp_error",
+		"sococli volume: failed to parse response: invalid character '<'": "parse_error",
+	}
+	for message, expected := range tests {
+		assert.Equal(t, expected, classifySoCoError(errors.New(message)))
+	}
+}
+
+func TestSoCoClient_GetVolumeRejectsOutOfRangeResult(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(SoCoResponse{Result: "101", ExitCode: 0})
+	}))
+	defer server.Close()
+
+	_, err := NewSoCoClient(server.URL, zaptest.NewLogger(t), false).GetVolume("Kitchen")
+	require.ErrorContains(t, err, "outside 0-100")
 }

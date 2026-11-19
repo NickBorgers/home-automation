@@ -469,6 +469,7 @@ type SpeakerFadeIn struct {
 	HumanOverrideDetected bool      `json:"humanOverrideDetected,omitempty"`
 	ExpectedVolume        int       `json:"expectedVolume,omitempty"`
 	ActualVolume          int       `json:"actualVolume,omitempty"`
+	Outcome               string    `json:"outcome,omitempty"`
 	StartTime             time.Time `json:"startTime"`
 	LastUpdate            time.Time `json:"lastUpdate"`
 }
