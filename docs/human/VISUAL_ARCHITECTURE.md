@@ -957,7 +957,7 @@ graph LR
         Reset[reset]
         ResetTV[resetTV]
         LightingReset[lightingReset]
-        MusicReset[musicReset]
+        AudioReset[audioReset]
         NickNearHome[isNickNearHome]
         CarolineNearHome[isCarolineNearHome]
         NickOffice[isNickOfficeOccupied]
@@ -1126,7 +1126,7 @@ graph LR
     ResetTV --> TV
     TV --> AppleTVPlaying
     LightingReset --> Lighting
-    MusicReset --> Music
+    AudioReset --> Music
     TV --> TVon
     TV --> TVPlaying
 

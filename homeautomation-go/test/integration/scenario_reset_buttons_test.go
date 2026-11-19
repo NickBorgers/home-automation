@@ -12,14 +12,14 @@ import (
 )
 
 // ============================================================================
-// Lighting Reset and Music Reset buttons
+// Lighting Reset and Audio Reset buttons
 //
-// "Turn on lighting reset" and "turn on music reset" in Siri flip
-// input_boolean.lighting_reset and input_boolean.music_reset in Home Assistant.
+// "Turn on lighting reset" and "turn on audio reset" in Siri flip
+// input_boolean.lighting_reset and input_boolean.audio_reset in Home Assistant.
 //
 // INVARIANTS:
 // - Lighting reset re-applies scenes and never touches music.
-// - Music reset re-resolves music and never re-applies scenes.
+// - Audio reset re-resolves music and never re-applies scenes.
 // - Each button turns itself off, so it can be used again.
 // ============================================================================
 
@@ -34,7 +34,7 @@ func setupResetButtonsHome(t *testing.T, env *musicLightingEnv) {
 	env.server.SetState("input_boolean.everyone_asleep", "off", map[string]interface{}{})
 	env.server.SetState("input_text.day_phase", "evening", map[string]interface{}{})
 	env.server.SetState("input_boolean.lighting_reset", "off", map[string]interface{}{})
-	env.server.SetState("input_boolean.music_reset", "off", map[string]interface{}{})
+	env.server.SetState("input_boolean.audio_reset", "off", map[string]interface{}{})
 	waitForProcessing(t, env.stateManager)
 	waitForServiceCallsToStabilize(t, env.server, 500*time.Millisecond)
 }
@@ -74,11 +74,11 @@ func TestScenario_UserStory_LightingResetOnlyAffectsLighting(t *testing.T) {
 	}
 }
 
-// TestScenario_UserStory_MusicResetOnlyAffectsMusic verifies the music reset button.
+// TestScenario_UserStory_AudioResetOnlyAffectsMusic verifies the audio reset button.
 //
-// User story: "The music is stuck. I say 'turn on music reset'. The music restarts
+// User story: "The music is stuck. I say 'turn on audio reset'. The music restarts
 // for the current mode. My lights stay as they are."
-func TestScenario_UserStory_MusicResetOnlyAffectsMusic(t *testing.T) {
+func TestScenario_UserStory_AudioResetOnlyAffectsMusic(t *testing.T) {
 	t.Parallel()
 	env, cleanup := setupMusicLightingTest(t)
 	defer cleanup()
@@ -87,23 +87,23 @@ func TestScenario_UserStory_MusicResetOnlyAffectsMusic(t *testing.T) {
 	setupResetButtonsHome(t, env)
 	snapshot := env.server.ServiceCallCount()
 
-	t.Log("WHEN: Music reset is turned on")
-	env.server.SetState("input_boolean.music_reset", "on", map[string]interface{}{})
+	t.Log("WHEN: Audio reset is turned on")
+	env.server.SetState("input_boolean.audio_reset", "on", map[string]interface{}{})
 
 	t.Log("THEN: The button turns itself off")
-	waitForBoolState(t, env.stateManager, "musicReset", false, "musicReset should clear itself")
+	waitForBoolState(t, env.stateManager, "audioReset", false, "audioReset should clear itself")
 
 	t.Log("THEN: Music re-resolves its mode")
 	waitForCondition(t, func() bool {
 		calls := env.server.GetServiceCallsSince(snapshot)
 		return len(filterServiceCalls(calls, "input_text", "set_value")) >= 1 ||
 			len(filterServiceCalls(calls, "media_player", "play_media")) >= 1
-	}, "music reset should re-resolve music")
+	}, "audio reset should re-resolve music")
 
 	t.Log("THEN: Lighting is not touched")
 	waitForServiceCallsToStabilizeSince(t, env.server, snapshot, 500*time.Millisecond)
 	calls := env.server.GetServiceCallsSince(snapshot)
-	assert.Empty(t, filterServiceCalls(calls, "scene", "turn_on"), "music reset must not re-apply scenes")
+	assert.Empty(t, filterServiceCalls(calls, "scene", "turn_on"), "audio reset must not re-apply scenes")
 }
 
 // TestScenario_UserStory_LightingResetPressedWhileAppIsDown verifies that a lighting reset

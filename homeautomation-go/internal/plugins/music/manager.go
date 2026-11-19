@@ -242,10 +242,10 @@ func (m *Manager) Start() error {
 	}
 	m.subscriptions = append(m.subscriptions, sub)
 
-	// Subscribe to the manual music reset trigger (input_boolean.music_reset, exposed to HomeKit)
-	sub, err = m.stateManager.Subscribe("musicReset", m.handleMusicResetChange)
+	// Subscribe to the manual audio reset trigger (input_boolean.audio_reset, exposed to HomeKit)
+	sub, err = m.stateManager.Subscribe("audioReset", m.handleAudioResetChange)
 	if err != nil {
-		return fmt.Errorf("failed to subscribe to musicReset: %w", err)
+		return fmt.Errorf("failed to subscribe to audioReset: %w", err)
 	}
 	m.subscriptions = append(m.subscriptions, sub)
 
@@ -302,43 +302,44 @@ func (m *Manager) Start() error {
 		}
 	}
 
-	// A music reset turned on while the app was down produces no change event, so it
+	// A audio reset turned on while the app was down produces no change event, so it
 	// would stay on and never run. Treat it as a fresh trigger.
-	if pending, err := m.stateManager.GetBool("musicReset"); err == nil && pending {
-		m.logger.Info("musicReset was already on at startup")
-		m.handleMusicResetChange("musicReset", false, true)
+	if pending, err := m.stateManager.GetBool("audioReset"); err == nil && pending {
+		m.logger.Info("audioReset was already on at startup")
+		m.handleAudioResetChange("audioReset", false, true)
 	}
 
 	m.logger.Info("Music Manager started successfully")
 	return nil
 }
 
-// handleMusicResetChange responds to the manual music reset trigger
-// (input_boolean.music_reset, exposed to HomeKit via the Home Assistant bridge).
+// handleAudioResetChange responds to the manual audio reset trigger
+// (input_boolean.audio_reset, exposed to HomeKit via the Home Assistant bridge).
+// The name avoids the word "music": Siri heard "turn on music reset" as "play some music".
 // It acts on the false → true edge only. It clears the boolean first, so the reset
 // cannot fire again after a restart. It then runs Reset in a goroutine, because
 // Reset blocks on speaker calls and the state callback must return quickly.
-func (m *Manager) handleMusicResetChange(key string, oldValue, newValue interface{}) {
+func (m *Manager) handleAudioResetChange(key string, oldValue, newValue interface{}) {
 	triggered, ok := newValue.(bool)
 	if !ok {
-		m.logger.Warn("musicReset value is not a boolean", zap.Any("value", newValue))
+		m.logger.Warn("audioReset value is not a boolean", zap.Any("value", newValue))
 		return
 	}
 	if !triggered {
 		return
 	}
 
-	m.logger.Info("Manual music reset triggered via musicReset state variable")
+	m.logger.Info("Manual audio reset triggered via audioReset state variable")
 
 	if m.readOnly {
-		m.logger.Info("READ-ONLY: Would turn musicReset boolean off")
-	} else if err := m.stateManager.SetBool("musicReset", false); err != nil {
-		m.logger.Error("Failed to turn musicReset off", zap.Error(err))
+		m.logger.Info("READ-ONLY: Would turn audioReset boolean off")
+	} else if err := m.stateManager.SetBool("audioReset", false); err != nil {
+		m.logger.Error("Failed to turn audioReset off", zap.Error(err))
 	}
 
 	go func() {
 		if err := m.Reset(); err != nil {
-			m.logger.Error("Music reset failed", zap.Error(err))
+			m.logger.Error("Audio reset failed", zap.Error(err))
 		}
 	}()
 }

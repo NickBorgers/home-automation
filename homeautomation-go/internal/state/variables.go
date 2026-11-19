@@ -58,7 +58,7 @@ var AllVariables = []StateVariable{
 	{Key: "reset", EntityID: "input_boolean.reset", Type: TypeBool, Default: false},
 	{Key: "resetTV", EntityID: "input_boolean.reset_tv", Type: TypeBool, Default: false},
 	{Key: "lightingReset", EntityID: "input_boolean.lighting_reset", Type: TypeBool, Default: false},
-	{Key: "musicReset", EntityID: "input_boolean.music_reset", Type: TypeBool, Default: false},
+	{Key: "audioReset", EntityID: "input_boolean.audio_reset", Type: TypeBool, Default: false},
 	{Key: "isFrontOfHousePersonPresent", EntityID: "input_boolean.front_of_house_person_present", Type: TypeBool, Default: false},
 	{Key: "isDarkOutside", EntityID: "input_boolean.dark_outside", Type: TypeBool, Default: false, ComputedOutput: true},
 
