@@ -636,6 +636,33 @@ func TestSepticAlarm_KeyPressedSendsNotification(t *testing.T) {
 	}
 }
 
+// TestInfrastructureAnnouncements_UseDefaultSpeakers checks that infrastructure
+// announcements name no speakers, so the notifier plays them on default_speakers.
+func TestInfrastructureAnnouncements_UseDefaultSpeakers(t *testing.T) {
+	t.Parallel()
+
+	mockHA := ha.NewMockClient()
+	mockClock := clock.NewMockClock(time.Now())
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	notifier := &notify.MockNotifier{}
+	manager := NewManagerWithClock(context.Background(), mockHA, stateMgr, logger, false, nil,
+		ntfy.NewMockClient(), notifier, mockClock)
+
+	manager.SimulateSepticAlarmEvent("KeyPressed")
+	manager.sendTTSAnnouncement("Septic aerator failure")
+
+	calls := notifier.Calls()
+	if len(calls) != 2 {
+		t.Fatalf("Expected 2 announcements, got %d", len(calls))
+	}
+	for _, call := range calls {
+		if len(call.Speakers) != 0 {
+			t.Errorf("Expected no speaker override for %q, got %v", call.Message, call.Speakers)
+		}
+	}
+}
+
 func TestSepticAlarm_KeyHeldDownDebounced(t *testing.T) {
 	t.Parallel()
 

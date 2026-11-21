@@ -435,15 +435,7 @@ func (m *Manager) sendRecoveryNotification() {
 
 // sendTTSAnnouncement sends a verbal infrastructure alert via the shared notifier.
 func (m *Manager) sendTTSAnnouncement(message string) {
-	speakers := []string{
-		"media_player.primary_bed",
-		"media_player.lounge",
-		"media_player.sitting",
-		"media_player.kids_bathroom",
-	}
-
 	if err := m.notifier.Announce(m.ctx, message,
-		notify.WithSpeakers(speakers),
 		notify.WithUrgency(notify.UrgencyUrgent),
 	); err != nil {
 		m.logger.Error("Failed to send infrastructure announcement", zap.Error(err), zap.String("message", message))
@@ -532,14 +524,7 @@ func (m *Manager) sendSepticAlarmNotification() {
 		m.logger.Warn("ntfy client not configured, cannot send septic alarm notification")
 	}
 
-	speakers := []string{
-		"media_player.primary_bed",
-		"media_player.lounge",
-		"media_player.sitting",
-		"media_player.kids_bathroom",
-	}
 	if err := m.notifier.Announce(m.ctx, message,
-		notify.WithSpeakers(speakers),
 		notify.WithUrgency(notify.UrgencyDeferable),
 	); err != nil && err != notify.ErrSuppressedAsleep {
 		m.logger.Error("Failed to send septic alarm announcement", zap.Error(err))

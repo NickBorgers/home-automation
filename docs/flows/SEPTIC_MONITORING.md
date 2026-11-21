@@ -56,8 +56,8 @@ When a failure condition is detected:
    - Tags: `warning`, `toilet`
 
 2. **TTS Announcement** via Sonos speakers
-   - Speakers: bedroom, kitchen, dining room, kids bathroom
-   - Uses Google Translate TTS
+   - Speakers: `notification.default_speakers` in `configs/notification_config.yaml`
+   - Uses Kokoro TTS through the shared notifier
 
 ### Recovery Notifications
 

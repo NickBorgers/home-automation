@@ -2,7 +2,9 @@
 
 The vacuum plugin (`homeautomation-go/internal/plugins/vacuum/`) does two things:
 
-1. **Error announcer.** It speaks the robot's errors and repeats them until they clear. See
+1. **Error announcer.** It speaks the robot's errors and repeats them until they clear. Errors play on
+   `notification.default_speakers` (`configs/notification_config.yaml`). The "You have satisfied Casper"
+   confirmation plays only on the Sitting speaker. See
    [ARCHITECTURE.md](../architecture/ARCHITECTURE.md#15-vacuum-plugin-).
 2. **Dirty-room scheduler.** It cleans rooms when they are dirty, available under room access constraints, and fit
    in the battery.

@@ -35,14 +35,17 @@ const (
 	defaultAwakeVolumePercent = 60
 )
 
-// defaultSpeakers is the union of speaker lists currently used by plugins.
-// Used when no notification_config.yaml is present and no plugin override is given.
+// defaultSpeakers matches default_speakers in configs/notification_config.yaml.
+// Used when that file is missing or leaves the list empty.
 var defaultSpeakers = []string{
 	"media_player.lounge",
-	"media_player.primary_bed",
 	"media_player.sitting",
-	"media_player.bedroom",
+	"media_player.primary_bed",
 	"media_player.kids_bathroom",
+	"media_player.primary_bath",
+	"media_player.utility",
+	"media_player.kitchen",
+	"media_player.pantry",
 }
 
 // LoadConfig reads the notifier config from a YAML file. Missing fields fall

@@ -126,11 +126,8 @@ flowchart TD
 
 ### Doorbell Notification Targets
 
-**TTS Speakers:**
-- Primary Bed
-- Kitchen
-- Sitting
-- Kids Bathroom
+**TTS Speakers:** `notification.default_speakers` in `configs/notification_config.yaml`, the one speaker list
+for all announcements.
 
 **Flashing Lights:**
 - Primary Suite

@@ -494,13 +494,13 @@ Each plugin corresponds to a Node-RED flow and implements domain-specific automa
 
 **Responsibilities:**
 - Monitor Casper's error sensor and announce actionable errors via TTS
-- Announce a short recovery confirmation on configured speakers when an active
+- Announce a short recovery confirmation on the Sitting speaker when an active
   error clears and someone is home
 - Suppress announcements while master is asleep
 - Re-announce unresolved errors on a configurable interval (default 2 hours) until cleared
 
 **Key Automations:**
-- **Error Announcement**: On error sensor transition from "No error" to a real error → TTS to common-area speakers
+- **Error Announcement**: On error sensor transition from "No error" to a real error → TTS on `notification.default_speakers`
 - **Unavailable Debounce**: Hold transient `"unavailable"` / `"unknown"` error
   sensor states for 60 seconds; discard them if Casper recovers inside the window
 - **Clear Confirmation**: On real error transition back to "No error" while

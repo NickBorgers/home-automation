@@ -359,7 +359,7 @@ func TestVacuum_LoadConfigDefaults(t *testing.T) {
 	assert.Equal(t, defaultNoErrorValue, cfg.Vacuum.NoErrorValue)
 	assert.Equal(t, defaultMessagePrefix, cfg.Vacuum.Announcement.MessagePrefix)
 	assert.Equal(t, defaultRepeatInterval, cfg.Vacuum.Announcement.RepeatInterval)
-	assert.Equal(t, defaultSpeakers, cfg.Vacuum.Announcement.Speakers)
+	assert.Empty(t, cfg.Vacuum.Announcement.Speakers, "errors use the notifier's default_speakers")
 	assert.Equal(t, defaultClearMessage, cfg.Vacuum.ClearAnnouncement.Message)
 	assert.Equal(t, []string{defaultClearSpeakerEntityID}, cfg.Vacuum.ClearAnnouncement.Speakers)
 }

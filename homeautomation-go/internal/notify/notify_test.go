@@ -441,8 +441,9 @@ func TestLoadConfig_ShippedBedroomSpeakers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
-	if len(cfg.BedroomSpeakers) != 1 || cfg.BedroomSpeakers[0] != "media_player.primary_bed" {
-		t.Errorf("bedroom_speakers: want [media_player.primary_bed], got %v", cfg.BedroomSpeakers)
+	want := []string{"media_player.primary_bed", "media_player.primary_bath"}
+	if !equalStringSlices(want, cfg.BedroomSpeakers) {
+		t.Errorf("bedroom_speakers: want %v, got %v", want, cfg.BedroomSpeakers)
 	}
 }
 
