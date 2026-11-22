@@ -101,7 +101,12 @@ func TestScenario_LuxOverlappingTransitionsDoNotCreateFalseManualHold(t *testing
 		"color_temp_kelvin": 6500.0,
 	})
 	client.WaitForHandlers()
-	mockClock.AdvanceAndProcess(time.Minute)
+	// The hold is confirmed by a fresh read one confirmation delay later. Advance in two
+	// steps so the hold check completes before the lux tick fires; otherwise the tick can
+	// run luxEvaluate while the check is still pending, writing Held=false to shadow state.
+	t.Log("THEN: the confirming read 5s later finds the light still off the path")
+	mockClock.AdvanceAndProcess(6 * time.Second)
+	mockClock.AdvanceAndProcess(54 * time.Second) // advance into the next lux tick so shadow state reflects the hold
 	require.Eventually(t, func() bool {
 		return manager.GetShadowState().Outputs.LuxControl["Living Room"].Held
 	}, time.Second, 10*time.Millisecond, "a real manual change must hold the room")
