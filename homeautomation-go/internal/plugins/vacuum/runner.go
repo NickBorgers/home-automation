@@ -1330,7 +1330,7 @@ func (s *Scheduler) checkRouteAvailability(st *valetudo.State, room string, posO
 // A sleeper's room, a battery at its floor, or a robot in a room it must not enter for another reason cannot
 // be waited for.
 func (s *Scheduler) routeWaitable(st *valetudo.State, at string) bool {
-	free := ComputeRestrictions(s.graph, nil, s.sleeperRooms())
+	free := ComputeRestrictions(s.graph, nil, s.sleeperRooms(), nil)
 	return s.routeUnavailableReason(st, free, at) == ""
 }
 
