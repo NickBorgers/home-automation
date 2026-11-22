@@ -337,6 +337,59 @@ func TestScenario_Environmental_WaterLeakDetection(t *testing.T) {
 	t.Log("✓ Water leak detection verified")
 }
 
+// Story: a leak sensor device also exposes a low-battery binary sensor whose entity_id contains "water_leak".
+// Invariant: only moisture entities are leak sensors. A battery entity turning on must never announce a leak.
+func TestScenario_Environmental_LeakSensorLowBatteryIsNotALeak(t *testing.T) {
+	t.Parallel()
+	env, cleanup := setupSensorMonitoringTest(t)
+	defer cleanup()
+
+	// GIVEN: a leak sensor device with a moisture entity and a low-battery entity
+	t.Log("GIVEN: leak sensor with moisture entity and low-battery entity")
+	env.server.SetState("binary_sensor.example_leak_sensor_water_leak_detected", "off", map[string]interface{}{
+		"device_class":  "moisture",
+		"friendly_name": "Example Leak Sensor Water leak detected",
+	})
+	env.server.SetState("binary_sensor.example_leak_sensor_water_leak_low_battery_level", "off", map[string]interface{}{
+		"device_class":  "battery",
+		"friendly_name": "Example Leak Sensor Low battery level",
+	})
+	waitForProcessing(t, env.manager)
+
+	require.NoError(t, env.environmental.Start())
+	defer env.environmental.Stop()
+	env.mockAlerter.Reset()
+
+	assert.Equal(t, 1, len(env.environmental.GetWaterLeakSensors()),
+		"Only the moisture entity should be watched as a leak sensor")
+
+	// WHEN: the battery entity turns on
+	t.Log("WHEN: low-battery entity turns on")
+	env.server.SetState("binary_sensor.example_leak_sensor_water_leak_low_battery_level", "on", map[string]interface{}{
+		"device_class":  "battery",
+		"friendly_name": "Example Leak Sensor Low battery level",
+	})
+	waitForProcessing(t, env.manager)
+
+	// THEN: no leak is active and no leak notification is sent
+	t.Log("THEN: no water leak is reported")
+	assert.Equal(t, 0, env.environmental.GetActiveWaterLeakCount())
+	for _, call := range env.mockAlerter.Calls() {
+		assert.NotEqual(t, "Water Leak Detected", call.Title, "Low battery must not announce a water leak")
+	}
+
+	// AND: the real moisture entity still triggers a leak
+	t.Log("AND: moisture entity turning on still reports a leak")
+	env.server.SetState("binary_sensor.example_leak_sensor_water_leak_detected", "on", map[string]interface{}{
+		"device_class":  "moisture",
+		"friendly_name": "Example Leak Sensor Water leak detected",
+	})
+	waitForCondition(t, func() bool {
+		return env.environmental.GetActiveWaterLeakCount() == 1
+	}, "moisture leak detection")
+	assert.Equal(t, 1, env.environmental.GetActiveWaterLeakCount())
+}
+
 // ============================================================================
 // Test: High Humidity Alert (environmental)
 // ============================================================================
