@@ -186,6 +186,9 @@ type RoomConfig struct {
 	FullRaw string `yaml:"full"`
 	// VacuumRaw, when set, adds a vacuum-only taint with its own interval.
 	VacuumRaw string `yaml:"vacuum"`
+	// QuietFor lists house-map areas within earshot of the room, such as a living area behind a door. While
+	// any of them is occupied or unknown, the room is not cleaned. It may still be driven through.
+	QuietFor []string `yaml:"quiet_for"`
 
 	Full   time.Duration `yaml:"-"`
 	Vacuum time.Duration `yaml:"-"`

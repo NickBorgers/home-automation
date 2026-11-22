@@ -598,7 +598,7 @@ func (s *Scheduler) fenceForRun(p Plan) ([]string, error) {
 		return nil, errors.New("the owner's virtual restrictions from an earlier run are not restored yet")
 	}
 
-	restr := ComputeRestrictions(s.graph, s.blockedAreas(), s.sleeperRooms())
+	restr := ComputeRestrictions(s.graph, s.blockedAreas(), s.sleeperRooms(), s.quietFor())
 	walls, unplaced := fenceWalls(s.houseMap, s.graph, s.dockRoom, restr.NoEnter, s.cfg.FenceMargin())
 	for _, d := range unplaced {
 		s.warn("fence:unplaced:"+d, "door "+d+" leads into a no-enter room but has no span in the house map; "+
@@ -692,7 +692,7 @@ func (s *Scheduler) logWouldFence(p Plan) {
 	if !s.cfg.FenceEnabled() || v == nil {
 		return
 	}
-	restr := ComputeRestrictions(s.graph, s.blockedAreas(), s.sleeperRooms())
+	restr := ComputeRestrictions(s.graph, s.blockedAreas(), s.sleeperRooms(), s.quietFor())
 	walls, unplaced := fenceWalls(s.houseMap, s.graph, s.dockRoom, restr.NoEnter, s.cfg.FenceMargin())
 	if len(walls) == 0 && len(unplaced) == 0 {
 		return

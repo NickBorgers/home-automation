@@ -23,6 +23,12 @@ Every rule must hold.
    spread it, and neither do exterior openings.
 2. The robot never cleans a sleeper's room or a room one door away from it. It may drive through a room next
    to a sleeper.
+
+   The robot also never cleans a room while an area within its earshot is occupied or unknown. A room lists those
+   areas in `quiet_for`, by house-map area name, for example a pantry behind a door from the living area. The
+   robot may drive through such a room, so rooms beyond it are still cleaned. The skip reason reads
+   "within earshot of area living, which is occupied or unknown". An area name that is not in the house map
+   stops the scheduler with a config error.
 3. A run starts only at or above `battery.start_min` (70 % in the example). Rooms are packed so trip plus
    room costs stay within battery minus `battery.floor` (30 %). Costs are learned from real runs.
 
@@ -104,7 +110,7 @@ flowchart TD
     B -- no --> X[No run, reason recorded]
     B -- yes --> C{Dock room clear?}
     C -- no --> X
-    C -- yes --> D[no_enter: rooms in occupied or unknown areas + rooms open to them + sleeper rooms<br/>no_clean: no_enter + sleeper neighbours]
+    C -- yes --> D[no_enter: rooms in occupied or unknown areas + rooms open to them + sleeper rooms<br/>no_clean: no_enter + sleeper neighbours<br/>+ rooms whose quiet_for area is occupied or unknown]
     D --> E[Drop items in no_clean]
     E --> F[Drop items whose shortest way from the dock enters no_enter]
     F --> G[Best score sets the treatment<br/>full also clears its room's vacuum taint]
@@ -429,6 +435,8 @@ flowchart TD
 ```
 
 - A paused robot goes home once the way clears. It does not resume the run.
+- A remaining room enters `no_clean` when a sleeper falls asleep next door, or when an area in its `quiet_for`
+  fills. Both end the run the same way, even while the robot is cleaning that room.
 - A robot the scheduler paused is waiting for its way home, whether it reports `paused` or `idle`. That run never
   ends by stall, and an `idle` robot does not end it either. Only `error` still ends it after `stall_timeout`.
 - A robot in a `no_enter` room has no available onward route at once, whether it went off the planned way or
