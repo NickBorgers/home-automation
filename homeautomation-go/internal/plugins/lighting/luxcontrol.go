@@ -114,6 +114,9 @@ type luxHoldCheck struct {
 	reason string    // why the first report looked manual
 	last   *ha.State // the most recent report or read
 	reads  int       // fresh reads made after the fade ended
+	// skipped is set when an evaluation (a tick, a presence or condition change) was skipped
+	// during the check. A check that clears runs it then, not at the next tick.
+	skipped bool
 }
 
 // cancelHoldCheck drops a pending confirmation. Caller must hold luxMu.
@@ -404,6 +407,9 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 	st := m.luxRoom(room.HueGroup)
 	rec.Held, rec.HeldSince, rec.HeldReason = st.held, st.heldSince, st.heldReason
 	checking := st.checking != nil
+	if checking {
+		st.checking.skipped = true // confirmLuxHold evaluates again if the check clears
+	}
 	m.luxMu.Unlock()
 
 	finish := func(decision string) {
@@ -766,9 +772,13 @@ func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
 			check.reads++ // a group may lag a running fade by several seconds, so only reads after it count
 		}
 		if reason = cansChangeReason(room, st, s, now); reason == "" {
+			skipped := check.skipped
 			m.luxMu.Unlock()
 			m.logger.Info("Possible manual change not confirmed; the cans are on the fade path",
 				zap.String("room", room.HueGroup), zap.String("first_reason", check.reason))
+			if skipped {
+				m.luxEvaluate(room, "hold check cleared")
+			}
 			return
 		}
 		if s.State == "on" && check.reads < luxHoldConfirmReads && luxReportMoved(check.last, s) {

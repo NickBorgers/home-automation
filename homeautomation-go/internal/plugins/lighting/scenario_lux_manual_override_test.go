@@ -271,6 +271,42 @@ func TestScenario_UserStory_ManualChangeConfirmedByFreshReadHolds(t *testing.T) 
 	}
 }
 
+func TestScenario_UserStory_PresenceDuringAClearedHoldCheckIsAppliedAtOnce(t *testing.T) {
+	t.Parallel()
+	// GIVEN: the fades to 63% have ended, the room boosts its brightness while occupied in the
+	// day phase, and nobody is in it. A late off-path report starts a hold check.
+	t.Log("GIVEN: a late off-path report is being checked in an empty room")
+	f, t0 := overlappingFades(t)
+	// A 75 lux target with no daylight: about 36% empty, about 72% occupied.
+	f.room.LuxControl.LuxScale = 0.25
+	f.setOutdoor("0")
+	f.room.LuxControl.PresenceOverride = &LuxPresenceOverride{
+		Variable: "isKitchenOccupied", Phases: []string{"day"}, BrightnessMultiplierPct: 200,
+	}
+	require.NoError(t, f.env.StateMgr.SetString("dayPhase", "day"))
+	require.NoError(t, f.env.StateMgr.SetBool("isKitchenOccupied", false))
+	replayReports(f, t0, []cansReport{{181 * time.Second, 181}}) // 71%: off the path
+	f.env.MockHA.ClearServiceCalls()
+
+	// WHEN: someone walks in during the check, and the confirming read lands on the fade path
+	t.Log("WHEN: someone walks in during the check, then the light reads 63% as commanded")
+	require.NoError(t, f.env.StateMgr.SetBool("isKitchenOccupied", true))
+	f.manager.handleLuxPresenceChange(f.room, "isKitchenOccupied", false, true)
+	assert.Empty(t, f.lightCalls(), "no command while the check runs")
+	f.env.MockHA.SetState(luxTestCans, "on", map[string]interface{}{"brightness": 161.0, "color_temp_kelvin": 5000.0})
+	f.clock.Advance(luxHoldConfirmDelay) // the confirming read; no tick runs in this fixture
+
+	// THEN: the boosted target is sent right away, not at the next tick
+	t.Log("THEN: the presence boost is sent as soon as the check clears")
+	assert.False(t, f.manager.luxHeld(f.room))
+	calls := f.lightCalls()
+	require.Len(t, calls, 1, "the skipped evaluation runs when the check clears")
+	st := f.manager.GetShadowState().Outputs.LuxControl["Living Room"]
+	assert.Equal(t, "presence_override", st.TargetSource)
+	assert.Greater(t, calls[0].Data["brightness_pct"], 63, "brighter than the unboosted command")
+	assert.Equal(t, int(st.BrightnessPct), calls[0].Data["brightness_pct"])
+}
+
 func TestLux_HoldCheckCancelledWhenEveryoneLeaves(t *testing.T) {
 	t.Parallel()
 	// GIVEN: an off-path report is waiting for its confirming read
