@@ -325,8 +325,8 @@ rooms:
     lux_control:
       mode: active
       cans: light.pantry # 6 cans (the 2 Mud cans are the Mud room)
-      # A wall separates the Pantry from the Kitchen, so it brightens only for its own camera-derived
-      # room-presence output, isPantryOccupied.
+      # The Pantry is a separate room from the Kitchen, so it brightens only for its own room-presence
+      # output, isPantryOccupied.
       presence_override:
         variable: isPantryOccupied
         phases: [sunset, dusk, winddown, night]
