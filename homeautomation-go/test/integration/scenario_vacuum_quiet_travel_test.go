@@ -2,6 +2,7 @@ package integration
 
 import (
 	"testing"
+	"time"
 
 	"homeautomation/internal/valetudo/valetudotest"
 
@@ -106,8 +107,8 @@ func TestScenario_Vacuum_QuietTravel_FanHighOnlyInTheRoomBeingCleaned(t *testing
 }
 
 // GIVEN a quiet-travel run of the study and then the kitchen, with the fan high in the study
-// WHEN someone walks into the kitchen
-// THEN the robot is sent home and drives home at the travel fan speed
+// WHEN someone walks into the kitchen and stays past route_blocked_wait, then leaves
+// THEN the robot waits paused, is then sent home, and drives home at the travel fan speed
 func TestScenario_Vacuum_QuietTravel_SentHomeQuietly(t *testing.T) {
 	v := setupQuietTravelScenario(t)
 	v.markDirty("study", "kitchen")
@@ -120,7 +121,7 @@ func TestScenario_Vacuum_QuietTravel_SentHomeQuietly(t *testing.T) {
 	v.walkIntoKitchen()
 	v.tick()
 
-	t.Log("THEN: the robot is sent home and the fan goes down for the trip")
+	t.Log("THEN: the robot pauses and the fan goes down for the wait and the trip")
 	paths := []string{}
 	for _, c := range v.robot.Commands() {
 		paths = append(paths, c.Path)
@@ -130,6 +131,14 @@ func TestScenario_Vacuum_QuietTravel_SentHomeQuietly(t *testing.T) {
 		"/api/v2/robot/capabilities/FanSpeedControlCapability/preset",
 	}, paths)
 	assert.Equal(t, []string{"low"}, v.fanCommands())
+
+	t.Log("AND: the person stays past the wait and then leaves, so the robot is sent home")
+	v.robot.SetStatus("paused", "resumable")
+	v.advance(6 * time.Minute)
+	v.clearOccupancy()
+	v.advance(3 * time.Second)
+	assert.Equal(t, []string{"pause", "home"}, v.basicActions())
+	v.robot.SetStatus("returning", "none")
 
 	t.Log("AND: it stays low all the way home, even through the study it was cleaning")
 	v.step("study", 96)

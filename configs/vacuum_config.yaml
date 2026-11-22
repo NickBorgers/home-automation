@@ -105,6 +105,12 @@ vacuum:
     # this long is sent home once its way home is clear.
     stranded_after: "5m"
 
+    # When an occupied area blocks the run's route and the way home, the robot
+    # pauses and waits this long for it to clear. If it clears in time, the
+    # robot resumes cleaning the unfinished rooms. If not, the run aborts and
+    # the robot goes home once its way is clear. Default 5m.
+    route_blocked_wait: "5m"
+
     # Start no new run while any of these boolean state variables has the
     # given value, for example while the TV plays. A run that is going goes
     # on. When the hold ends, the plan must hold for stable_for again.

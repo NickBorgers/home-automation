@@ -734,9 +734,12 @@ type run struct {
 	abortReason string
 	paused      bool
 	homeSent    bool
-	endedAt     time.Time
-	outcome     string
-	endReason   string
+	// waitSince is when the robot paused to wait for an occupied area to clear; zero when it is not waiting.
+	// While it waits the run is not aborted: a way that clears in time resumes the run. See routeBlockedWait.
+	waitSince time.Time
+	endedAt   time.Time
+	outcome   string
+	endReason string
 
 	// fan is quiet travel for this run; nil when it does not apply. fanSpeed is the fan preset the scheduler
 	// last set.
@@ -1252,15 +1255,26 @@ func (s *Scheduler) checkRouteAvailability(st *valetudo.State, room string, posO
 		at = s.dockRoom
 	}
 
+	now := s.timeProvider.Now()
+	if !r.waitSince.IsZero() && s.checkBlockedWait(now, st, restr, at) {
+		return
+	}
+
 	goingHome := r.aborted || r.paused || st.Status == valetudo.StatusReturning
+	var waiting bool
 	if !goingHome {
 		reason := s.routeUnavailableReason(st, restr, at)
 		if reason == "" {
 			return
 		}
-		r.aborted, r.abortReason = true, reason
+		r.abortReason = reason
 		s.logger.Warn("Vacuum route is no longer available", zap.String("reason", reason), zap.String("robot_room", at),
 			zap.Strings("unfinished", r.remaining()))
+		// An occupied area often clears in seconds. When the way home is blocked too, the robot pauses in place
+		// and the run waits for it before it gives up.
+		crossed, ok := LegCrosses(s.graph, at, s.dockRoom, restr.NoEnter)
+		waiting = s.routeWaitable(st, at) && !(ok && crossed == "")
+		r.aborted = !waiting
 	}
 
 	crossed, ok := LegCrosses(s.graph, at, s.dockRoom, restr.NoEnter)
@@ -1281,8 +1295,48 @@ func (s *Scheduler) checkRouteAvailability(st *valetudo.State, room string, posO
 		}
 		if s.command(valetudo.ActionPause, why) == nil {
 			r.paused, r.homeSent = true, false
+			if waiting {
+				r.waitSince = now
+			}
 		}
 	}
+}
+
+// routeWaitable says whether a route that is unavailable may be waited for. It may when only occupied areas
+// make it unavailable, because a person moves on: the same check with no area occupied finds nothing wrong.
+// A sleeper's room, a battery at its floor, or a robot in a room it must not enter for another reason cannot
+// be waited for.
+func (s *Scheduler) routeWaitable(st *valetudo.State, at string) bool {
+	free := ComputeRestrictions(s.graph, nil, s.sleeperRooms())
+	return s.routeUnavailableReason(st, free, at) == ""
+}
+
+// checkBlockedWait handles a robot paused to wait for an occupied area. It resumes the robot when the route is
+// available again. When the wait is over, or the route became unavailable for a reason that cannot be waited
+// for, it turns the wait into an abort. It returns true when nothing more is to be done on this poll.
+func (s *Scheduler) checkBlockedWait(now time.Time, st *valetudo.State, restr Restrictions, at string) bool {
+	r := s.run
+	reason := s.routeUnavailableReason(st, restr, at)
+	switch {
+	case reason == "":
+		// Start resumes the job the pause left; Valetudo keeps the rooms still to clean.
+		if s.command(valetudo.ActionStart, "route is clear again") != nil {
+			return true // try again on the next poll, until the wait runs out
+		}
+		s.logger.Info("Vacuum route is available again; resuming the run", zap.Duration("waited", now.Sub(r.waitSince)),
+			zap.Strings("unfinished", r.remaining()))
+		r.paused, r.waitSince, r.abortReason = false, time.Time{}, ""
+		return true
+	case !s.routeWaitable(st, at):
+		r.abortReason = reason
+	case now.Sub(r.waitSince) < s.cfg.RouteBlockedWait:
+		r.abortReason = reason
+		return true
+	}
+	s.logger.Warn("Vacuum route stayed blocked; giving up the run", zap.String("reason", r.abortReason),
+		zap.Duration("waited", now.Sub(r.waitSince)), zap.Strings("unfinished", r.remaining()))
+	r.aborted, r.waitSince = true, time.Time{}
+	return false
 }
 
 // routeUnavailableReason says why room access constraints make the rest of the route unavailable, or "".

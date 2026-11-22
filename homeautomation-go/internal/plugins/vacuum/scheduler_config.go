@@ -50,6 +50,8 @@ const (
 	defaultFenceMarginM  = 0.25
 	maxFenceMarginM      = 1.0
 	defaultStrandedAfter = 5 * time.Minute
+	// defaultRouteBlockedWait is how long a paused run waits for an occupied area to clear.
+	defaultRouteBlockedWait = 5 * time.Minute
 	// defaultFenceHelperGrace is how long input_text.vacuum_fence_saved may read "unknown" before the
 	// scheduler treats it as empty.
 	defaultFenceHelperGrace = 2 * time.Minute
@@ -114,6 +116,12 @@ type SchedulerConfig struct {
 	StrandedAfterRaw string `yaml:"stranded_after"`
 	// StrandedAfter is the parsed stranded_after.
 	StrandedAfter time.Duration `yaml:"-"`
+	// RouteBlockedWaitRaw is how long a run of ours waits, with the robot paused, for an occupied area on its
+	// route to clear. If the way clears in time, the robot resumes; if not, the run aborts and the robot goes
+	// home. Default 5m.
+	RouteBlockedWaitRaw string `yaml:"route_blocked_wait"`
+	// RouteBlockedWait is the parsed route_blocked_wait.
+	RouteBlockedWait time.Duration `yaml:"-"`
 
 	// WaterEmptyError is text in the error sensor's state that means the mop dock's clean water tank is
 	// empty, matched without regard to case. While the tank is empty, runs are vacuum only. Default
@@ -379,6 +387,10 @@ func (c *SchedulerConfig) validate() error {
 
 	if c.StrandedAfter, err = parseDuration("scheduler.stranded_after", c.StrandedAfterRaw, defaultStrandedAfter,
 		false); err != nil {
+		return err
+	}
+	if c.RouteBlockedWait, err = parseDuration("scheduler.route_blocked_wait", c.RouteBlockedWaitRaw,
+		defaultRouteBlockedWait, false); err != nil {
 		return err
 	}
 	c.FenceHelperGrace = defaultFenceHelperGrace
