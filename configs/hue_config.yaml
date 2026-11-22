@@ -6,6 +6,8 @@ color_tracking:
   target_entity: light.back_hall
 
 lux_curve:
+  # The evening follows the schedule, not the sun. A sun anchor after noon can land after
+  # schedule.dusk in summer and make the curve dip, then climb. Noon slides straight to dusk.
   points:
     - anchor: sun.dawn
       lux: 300
@@ -13,9 +15,6 @@ lux_curve:
     - anchor: sun.noon
       lux: 300
       kelvin: 4000
-    - anchor: sun.goldenHour
-      lux: 150
-      kelvin: 3000
     - anchor: schedule.dusk
       lux: 100
       kelvin: 3000
@@ -255,12 +254,12 @@ rooms:
       mode: active
       cans: light.kitchen_cans
       # isKitchenOccupied is the logical output of Frigate camera room presence, not a physical radar input.
-      # While someone is in the kitchen in the evening or at night, multiply the curve's cans brightness.
+      # While someone is in the kitchen during the day, evening or night, multiply the curve's cans brightness.
       # A manual hold still wins. 200% is a STARTING GUESS: at night the cans go from about 8% to 17%.
       # Tune later.
       presence_override:
         variable: isKitchenOccupied
-        phases: [sunset, dusk, winddown, night]
+        phases: [day, sunset, dusk, winddown, night]
         brightness_multiplier_pct: 200
       # MEASURED 2026-10-31 13:10-13:30 at the island: 39.35 lux (cans off) / station 24,000-39,000 lux.
       # The workspace by the strip gave 0.0010. One sky condition only (sun and thin cloud).
@@ -329,7 +328,7 @@ rooms:
       # output, isPantryOccupied.
       presence_override:
         variable: isPantryOccupied
-        phases: [sunset, dusk, winddown, night]
+        phases: [day, sunset, dusk, winddown, night]
         brightness_multiplier_pct: 200
       # MEASURED 2026-11-05 in daylight with the handheld lux meter: 50.0 lux indoors (average of
       # 50.4 and 49.6), cans off / station 61,311 lux.

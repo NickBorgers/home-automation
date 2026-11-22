@@ -315,12 +315,14 @@ func TestProductionConfig_PresenceBrightensOnlyItsOwnRoom(t *testing.T) {
 		{"kitchen winddown occupied", at(21, 30), "winddown", "isKitchenOccupied", true, "Kitchen"},
 		{"kitchen dusk occupied", at(19, 45), "dusk", "isKitchenOccupied", true, "Kitchen"},
 		{"kitchen night empty", at(22, 30), "night", "isKitchenOccupied", false, ""},
-		{"kitchen day occupied", at(12, 0), "day", "isKitchenOccupied", true, ""},
+		{"kitchen day occupied", at(14, 0), "day", "isKitchenOccupied", true, "Kitchen"},
+		{"kitchen morning occupied", at(9, 0), "morning", "isKitchenOccupied", true, ""},
 		{"pantry night occupied", at(22, 30), "night", "isPantryOccupied", true, "Pantry"},
 		{"pantry winddown occupied", at(21, 30), "winddown", "isPantryOccupied", true, "Pantry"},
 		{"pantry dusk occupied", at(19, 45), "dusk", "isPantryOccupied", true, "Pantry"},
 		{"pantry night empty", at(22, 30), "night", "isPantryOccupied", false, ""},
-		{"pantry day occupied", at(12, 0), "day", "isPantryOccupied", true, ""},
+		{"pantry day occupied", at(14, 0), "day", "isPantryOccupied", true, "Pantry"},
+		{"pantry morning occupied", at(9, 0), "morning", "isPantryOccupied", true, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -350,6 +352,28 @@ func TestProductionConfig_PresenceBrightensOnlyItsOwnRoom(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestProductionConfig_LuxCurveHasNoSunAnchorAfterNoon asserts that the production curve has no
+// sun-based anchor between noon and dusk. A sun anchor after noon (e.g. goldenHour) can land after
+// schedule.dusk in summer, creating a dip-then-climb in the curve. The intent is: after noon, every
+// anchor is a schedule time so the evening follows the schedule, not the sun.
+func TestProductionConfig_LuxCurveHasNoSunAnchorAfterNoon(t *testing.T) {
+	t.Parallel()
+	cfg := loadProductionConfig(t)
+	require.NotNil(t, cfg.LuxCurve)
+	seenNoon := false
+	for _, p := range cfg.LuxCurve.Points {
+		if p.Anchor == "sun.noon" {
+			seenNoon = true
+			continue
+		}
+		if seenNoon {
+			assert.False(t, len(p.Anchor) > 4 && p.Anchor[:4] == "sun.",
+				"sun anchor %q found after noon; use a schedule anchor instead", p.Anchor)
+		}
+	}
+	assert.True(t, seenNoon, "expected sun.noon in the production curve")
 }
 
 // The Mud room is not next to the Kitchen. Kitchen presence must never turn it on or brighten it.

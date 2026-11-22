@@ -44,13 +44,12 @@ The room's existing `conditions` (presence, TV, sleep, wake sequence) still deci
 
 ## Target curve
 
-The curve is a list of points. Each point is tied to a sun event or a schedule time from `schedule_config.yaml`. Between two points, the target slides smoothly. Lux slides on a log scale, because the eye sees brightness roughly logarithmically. Kelvin slides in mired (one million divided by kelvin), because equal mired steps look like equal color steps.
+The curve is a list of points. Each point is tied to a sun event or a schedule time from `schedule_config.yaml`. After noon, every point is a schedule time. A sun point after noon can land after `dusk` in summer, which would make the curve dip and then climb. Between two points, the target slides smoothly. Lux slides on a log scale, because the eye sees brightness roughly logarithmically. Kelvin slides in mired (one million divided by kelvin), because equal mired steps look like equal color steps.
 
 | Point | Anchor | Target lux | Kelvin |
 |-------|--------|-----------:|-------:|
 | Dawn | sun `dawn` | 300 | 4000 |
 | Noon | sun `noon` | 300 | 4000 |
-| Golden hour | sun `goldenHour` | 150 | 3000 |
 | Dusk (after dinner) | schedule `dusk` | 100 | 3000 |
 | Wind-down | schedule `winddown` | 30 | 3000 |
 | Night, awake | schedule `night` | 5 | 3000 |
@@ -64,10 +63,10 @@ Each room can scale the whole curve. For example, a hallway might use `lux_scale
 
 ```mermaid
 xychart-beta
-    title "Target lux through the day (example: dawn 06:30, sunset 18:00)"
-    x-axis ["06:30", "12:00", "17:00", "19:30", "22:15", "23:00"]
+    title "Target lux through the day (example: dawn 06:30)"
+    x-axis ["06:30", "12:00", "19:30", "22:15", "23:00"]
     y-axis "Lux" 0 --> 320
-    line [300, 300, 150, 100, 30, 5]
+    line [300, 300, 100, 30, 5]
 ```
 
 ## Control loop
@@ -355,7 +354,7 @@ What the code does, where it differs from the text above, and what is left.
   ```yaml
   presence_override:
     variable: isKitchenOccupied
-    phases: [sunset, dusk, winddown, night]
+    phases: [day, sunset, dusk, winddown, night]
     brightness_multiplier_pct: 200
   ```
 
