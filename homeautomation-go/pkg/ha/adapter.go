@@ -106,3 +106,16 @@ func (a *ClientAdapter) SetInputNumber(name string, value float64) error {
 func (a *ClientAdapter) SetInputText(name string, value string) error {
 	return a.internal.SetInputText(name, value)
 }
+
+// SubscribeMQTT implements MQTTSubscriber.
+func (a *ClientAdapter) SubscribeMQTT(topic string, handler MQTTHandler) (Subscription, error) {
+	return a.internal.SubscribeMQTT(topic, func(msg ha.MQTTMessage) {
+		handler(MQTTMessage{
+			Topic:        msg.Topic,
+			Payload:      msg.Payload,
+			QoS:          msg.QoS,
+			Retain:       msg.Retain,
+			Resubscribed: msg.Resubscribed,
+		})
+	})
+}
