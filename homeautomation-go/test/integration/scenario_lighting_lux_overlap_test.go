@@ -105,7 +105,7 @@ func TestScenario_LuxOverlappingTransitionsDoNotCreateFalseManualHold(t *testing
 	// steps so the hold check completes before the lux tick fires; otherwise the tick can
 	// run luxEvaluate while the check is still pending, writing Held=false to shadow state.
 	t.Log("THEN: the confirming read 5s later finds the light still off the path")
-	mockClock.AdvanceAndProcess(6 * time.Second)
+	mockClock.AdvanceAndProcess(6 * time.Second)  // luxHoldConfirmDelay(5s) + 1s margin
 	mockClock.AdvanceAndProcess(54 * time.Second) // advance into the next lux tick so shadow state reflects the hold
 	require.Eventually(t, func() bool {
 		return manager.GetShadowState().Outputs.LuxControl["Living Room"].Held
@@ -211,7 +211,7 @@ func TestScenario_LuxFadeUpOverlapGuardEndsAfter31Seconds(t *testing.T) {
 	client.WaitForHandlers()
 	// The hold is created once a fresh read, one confirmation delay later, still shows the light off the path.
 	t.Log("THEN: the confirming read 5s later finds the light still off the path")
-	mockClock.AdvanceAndProcess(6 * time.Second)
+	mockClock.AdvanceAndProcess(6 * time.Second) // luxHoldConfirmDelay(5s) + 1s margin
 	require.Eventually(t, held, time.Second, 10*time.Millisecond,
 		"a report outside the 31-second overlap guard must create a manual hold")
 }
