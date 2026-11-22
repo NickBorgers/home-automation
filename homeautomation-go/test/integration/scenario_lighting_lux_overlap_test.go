@@ -204,6 +204,9 @@ func TestScenario_LuxFadeUpOverlapGuardEndsAfter31Seconds(t *testing.T) {
 		"color_temp_kelvin": 6500.0,
 	})
 	client.WaitForHandlers()
+	// The hold is created once a fresh read, one confirmation delay later, still shows the light off the path.
+	t.Log("THEN: the confirming read 5s later finds the light still off the path")
+	mockClock.AdvanceAndProcess(6 * time.Second)
 	require.Eventually(t, held, time.Second, 10*time.Millisecond,
 		"a report outside the 31-second overlap guard must create a manual hold")
 }
