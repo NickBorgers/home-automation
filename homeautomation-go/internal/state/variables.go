@@ -51,6 +51,7 @@ var AllVariables = []StateVariable{
 	{Key: "isExpectingSomeone", EntityID: "input_boolean.expecting_someone", Type: TypeBool, Default: false},
 	{Key: "isNickOfficeOccupied", EntityID: "input_boolean.nick_office_occupied", Type: TypeBool, Default: false},
 	{Key: "isKitchenOccupied", EntityID: "input_boolean.kitchen_occupied", Type: TypeBool, Default: false},
+	{Key: "isPantryOccupied", EntityID: "input_boolean.pantry_occupied", Type: TypeBool, Default: false},
 	{Key: "isPrimaryBedroomDoorOpen", EntityID: "input_boolean.primary_bedroom_door_open", Type: TypeBool, Default: false},
 	{Key: "isNickNearHome", EntityID: "input_boolean.nick_near_home", Type: TypeBool, Default: false},
 	{Key: "isCarolineNearHome", EntityID: "input_boolean.caroline_near_home", Type: TypeBool, Default: false},
