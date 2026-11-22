@@ -206,7 +206,7 @@ func (s *Scheduler) pollInterval() time.Duration {
 	if r := s.run; r != nil && r.fan != nil && r.fan.travelling && !r.fan.gaveUp {
 		return s.cfg.TravelTrackInterval
 	}
-	if r := s.run; r != nil && r.origin == originScheduler && r.current == "" && len(r.done) == 0 &&
+	if r := s.run; r != nil && r.current == "" && len(r.done) == 0 &&
 		!r.aborted && !r.paused {
 		return s.cfg.TravelTrackInterval
 	}

@@ -30,7 +30,7 @@ const realMap = `{"__class":"ValetudoMap","pixelSize":5,"size":{"x":5120,"y":512
  "layers":[
   {"__class":"MapLayer","type":"floor","pixels":[],"compressedPixels":[1,2,3],"metaData":{}},
   {"__class":"MapLayer","type":"segment","compressedPixels":[1,2,3],"metaData":{"segmentId":"20","name":"Kitchen","active":false}},
-  {"__class":"MapLayer","type":"segment","compressedPixels":[1,2,3],"metaData":{"segmentId":"21","name":"Pantry"}}
+  {"__class":"MapLayer","type":"segment","compressedPixels":[1,2,3],"metaData":{"segmentId":"21","name":"Pantry","active":true}}
  ],
  "entities":[
   {"__class":"PointMapEntity","type":"charger_location","points":[3500,3800],"metaData":{}},
@@ -81,7 +81,8 @@ func TestMapParsesRealReply(t *testing.T) {
 	dock, ok := m.ChargerPixel()
 	require.True(t, ok)
 	assert.Equal(t, [2]float64{700, 760}, dock)
-	assert.Equal(t, []valetudo.Segment{{ID: "20", Name: "Kitchen"}, {ID: "21", Name: "Pantry"}}, m.Segments)
+	assert.Equal(t, []valetudo.Segment{{ID: "20", Name: "Kitchen"}, {ID: "21", Name: "Pantry", Active: true}}, m.Segments)
+	assert.Equal(t, []string{"21"}, m.ActiveSegments())
 }
 
 func TestMapWithoutRobot(t *testing.T) {

@@ -135,6 +135,8 @@ func (c *Client) State(ctx context.Context) (*State, error) {
 type Segment struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	// Active is true for a segment of the job in progress. Only the map reports it.
+	Active bool `json:"-"`
 }
 
 // Map is the part of the robot's map the scheduler needs. Valetudo map coordinates are in centimetres;
@@ -151,6 +153,17 @@ type Map struct {
 // RobotPixel is the robot's position in map pixels. ok is false without a position.
 func (m *Map) RobotPixel() (px [2]float64, ok bool) {
 	return m.pixel(m.Robot)
+}
+
+// ActiveSegments lists the ids of the segments the job in progress cleans, in map order.
+func (m *Map) ActiveSegments() []string {
+	var out []string
+	for _, s := range m.Segments {
+		if s.Active {
+			out = append(out, s.ID)
+		}
+	}
+	return out
 }
 
 // ChargerPixel is the dock's position in map pixels. ok is false without a dock.
@@ -172,6 +185,7 @@ type mapReply struct {
 		MetaData struct {
 			SegmentID string `json:"segmentId"`
 			Name      string `json:"name"`
+			Active    bool   `json:"active"`
 		} `json:"metaData"`
 	} `json:"layers"`
 	Entities []struct {
@@ -201,7 +215,8 @@ func (c *Client) Map(ctx context.Context) (*Map, error) {
 	}
 	for _, l := range r.Layers {
 		if l.Type == "segment" {
-			m.Segments = append(m.Segments, Segment{ID: l.MetaData.SegmentID, Name: l.MetaData.Name})
+			m.Segments = append(m.Segments, Segment{ID: l.MetaData.SegmentID, Name: l.MetaData.Name,
+				Active: l.MetaData.Active})
 		}
 	}
 	return m, nil

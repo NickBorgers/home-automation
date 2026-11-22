@@ -1343,7 +1343,8 @@ type VacuumSkip struct {
 
 // VacuumRun is a run the scheduler started or saw.
 type VacuumRun struct {
-	// Origin is "scheduler" for a run this plugin started and "external" for any other.
+	// Origin is "scheduler" for a run this process started and "resumed" for a run it found in progress, such
+	// as after a restart. Both are the scheduler's own runs.
 	Origin       string     `json:"origin"`
 	Treatment    string     `json:"treatment,omitempty"`
 	Targets      []string   `json:"targets,omitempty"`
@@ -1353,9 +1354,9 @@ type VacuumRun struct {
 	PendingSince *time.Time `json:"pendingSince,omitempty"`
 	StartedAt    time.Time  `json:"startedAt"`
 	EndedAt      *time.Time `json:"endedAt,omitempty"`
-	// Outcome is how the run ended: completed, aborted, stopped, stalled, error or superseded.
+	// Outcome is how the run ended: completed, aborted, stopped, stalled, error or no_water.
 	Outcome string `json:"outcome,omitempty"`
-	// EndReason says why a stalled, error or superseded run ended, such as "robot in error for 30m".
+	// EndReason says why a stalled, error or no_water run ended, such as "robot in error for 30m".
 	EndReason         string `json:"endReason,omitempty"`
 	StartBattery      int    `json:"startBattery"`
 	Battery           int    `json:"battery"`

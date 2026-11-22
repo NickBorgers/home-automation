@@ -45,6 +45,9 @@ func TestSchedulerReadOnlyKeepsLearnedCostsInMemory(t *testing.T) {
 	e.start()
 	e.robot.SetPreset("operation_mode", "vacuum_and_mop")
 	e.robot.SetStatus("cleaning", "segment")
+	// The run is found in the mud room, so the whole office visit is seen and its sample counts.
+	e.moveTo("mud", 99)
+	e.advance(30 * time.Second)
 	for i := 0; i < 6; i++ {
 		e.moveTo("office", 99-i)
 		e.advance(30 * time.Second)

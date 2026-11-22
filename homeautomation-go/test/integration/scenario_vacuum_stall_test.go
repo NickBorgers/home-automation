@@ -29,16 +29,16 @@ import (
 //   - A stalled run teaches no trip cost.
 // ============================================================================
 
-// GIVEN a Valetudo timer starts a vacuum-only job
+// GIVEN a vacuum-only job is found in progress
 // WHEN the robot cleans the study and the kitchen, enters the hall, docks and goes into error for four hours,
-// and then a timer switches to vacuum_and_mop and cleans the porch
+// and then a vacuum_and_mop job cleans the porch
 // THEN there are two runs: a vacuum-only run that ends in error with the hall unfinished, and a full run that
-// clears the porch; the four hours on the dock teach no trip cost
+// clears the porch; neither run teaches a trip cost
 func TestScenario_Vacuum_ErrorStallThenNewJobIsANewRun(t *testing.T) {
 	v := setupVacuumScenario(t, nil, map[string]float64{"porch": 4, "trip": 1.3})
 	v.tick()
 
-	t.Log("GIVEN: a timer starts a vacuum-only job (06:00)")
+	t.Log("GIVEN: a vacuum-only job is found in progress (06:00)")
 	v.robot.SetPreset("operation_mode", "vacuum")
 	v.robot.SetStatus("cleaning", "segment")
 	battery := 100
@@ -88,7 +88,7 @@ func TestScenario_Vacuum_ErrorStallThenNewJobIsANewRun(t *testing.T) {
 	}
 	assert.Nil(t, v.out().Run)
 
-	t.Log("WHEN: the office timer switches to vacuum_and_mop and cleans the porch (11:00)")
+	t.Log("WHEN: a vacuum_and_mop job cleans the porch (11:00)")
 	v.robot.SetPreset("operation_mode", "vacuum_and_mop")
 	v.robot.SetStatus("cleaning", "segment")
 	battery = 100
@@ -119,10 +119,8 @@ func TestScenario_Vacuum_ErrorStallThenNewJobIsANewRun(t *testing.T) {
 	require.True(t, ok)
 	assert.Greater(t, int64(ts), vacuumT0.Add(4*time.Hour).Unix(), "the porch was fully cleaned by the second run")
 
-	t.Log("AND: the trip sample comes from the second run only")
-	// Drops: lounge 1, kitchen 1, hall 1 on the way out; porch 6 (five in the porch, one leaving it); the last
-	// point is lost on the dock. Total 9, porch 6, trip 3: 1.3 + 0.3 * (3 - 1.3) = 1.81 -> 1.8.
+	t.Log("AND: no trip sample is learned: a run found in progress saw only part of its battery drop")
 	trip, err := strconv.ParseFloat(v.server.GetState("input_number.vacuum_cost_trip").State, 64)
 	require.NoError(t, err)
-	assert.InDelta(t, 1.8, trip, 1e-9)
+	assert.InDelta(t, 1.3, trip, 1e-9)
 }

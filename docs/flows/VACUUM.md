@@ -316,8 +316,8 @@ When a stalled run ends:
 
 - The room the robot was in stays unfinished and dirty. Rooms it finished before stay finished.
 - No trip cost is learned. Room samples already taken stand; no sample includes stopped time.
-- The next `cleaning` starts a new run. A run started elsewhere reads its treatment from the operation mode
-  at that time.
+- The next `cleaning` is tracked as a run found in progress (see
+  [Runs found in progress](#runs-found-in-progress)).
 - `lastRun` shows the outcome, `error` or `stalled`, and `endReason`, such as
   `robot in error for 30m: status error, flag none`. The "Vacuum run ended" log line has the same `reason`.
 - If it was the scheduler's own run, the scheduler plans again. A plan needs a docked robot, so nothing
@@ -360,16 +360,41 @@ flowchart TD
     F -. tank still empty .-> E
 ```
 
-### Runs started elsewhere
+### Runs found in progress
 
-A run started by a Valetudo timer, the app or the button is tracked the same way. Its rooms count after
-`min_dwell`. The robot's operation mode decides what it clears: `vacuum_and_mop` clears both taints,
-`vacuum` clears the vacuum taint, and `mop` clears nothing. The scheduler never commands such a run.
+The scheduler is the only thing that drives the robot. When it sees the robot cleaning with no run tracked,
+such as after the app restarts in the middle of a run, the run is its own. It is tracked with origin
+`resumed`, and the usual rules apply to it: tracking, the live occupancy-aware routing, stalls and the
+end-of-run rule.
 
-If the robot stopped (docked, idle, paused or in error) and then cleans again with a different operation
-mode, that is a new job, such as another timer. The old run ends as `superseded`, with its current room
-unfinished and no trip sample, and a new run starts with the new mode. This holds even within
-`stall_timeout`.
+```mermaid
+flowchart TD
+    A[Robot cleaning,<br/>no run tracked] --> B[Read the robot map]
+    B --> C{Segments marked active?}
+    C -- yes --> D[Targets: their rooms,<br/>a tour from the robot's room]
+    C -- no --> E[No targets: a room counts<br/>after min_dwell]
+    D --> F{Robot in a target?}
+    F -- yes --> H[That room counts at once]
+    F -- no --> G[Track as the scheduler's run]
+    H --> G
+    E --> G
+```
+
+- **Targets.** Valetudo's map marks the segments of the job in progress `active`. The targets are the
+  configured rooms of those segments, ordered as a nearest-neighbour tour from the robot's room. A room the
+  scheduler finished before the restart may still be marked active. It stays in the targets, and it is not
+  marked again unless the robot cleans it again.
+- **The room being cleaned.** When the robot is in a target, that room is the first of the tour and counts at
+  once. It is marked clean when the robot moves on to the next target or the run completes.
+- **Treatment.** The robot's operation mode decides what the run clears: `vacuum_and_mop` clears both
+  taints, `vacuum` clears the vacuum taint, and `mop` clears nothing.
+- **Costs.** No cost sample is learned for the room the robot was in when the run was found, and no trip
+  sample is learned: the scheduler saw only part of their battery drop. A target the robot enters later
+  gives a sample as usual.
+- **No targets.** If the map cannot be read or marks no segment active, every configured room counts once
+  the robot stays in it for `min_dwell`.
+- Quiet travel stays off for the rest of the run. Walls from before the restart stay on the robot until the
+  run ends (see [Restarts](#restarts)).
 
 ## Quiet travel
 
@@ -390,7 +415,7 @@ stateDiagram-v2
     Fallback --> [*]: fan stays at the treatment level
 ```
 
-- It applies only to runs the scheduler starts in `active` mode. Runs started elsewhere are never touched. In
+- It applies only to runs this process starts in `active` mode. A run found in progress is not touched. In
   `log_only` mode, or when the app is read-only, the "would start a run" log line names both fan speeds.
 - The room being cleaned now is the run's current room. The fan is at the treatment's level in the current
   room and in the next room of the tour. In the next room, the robot is about to clean it, or is cleaning near
@@ -498,7 +523,7 @@ pixel size and to check the frame. It never reads or writes the restrictions.
 | `robot` | Status, battery, room, last poll, last error |
 | `items` | Every room and treatment: dirty, manual, last clean, score, cost, missing helpers |
 | `plan` | Latest plan, `noEnter`, `noClean`, `skipped` reasons, `pendingSince`, `startsAt`, `wouldStartAt` |
-| `run`, `lastRun` | Origin, targets, done rooms, current room, pending next room, `pendingSince` (when the robot was first seen cleaning in the pending room), abort reason, paused, outcome (`completed`, `aborted`, `stopped`, `stalled`, `error`, `superseded`, `no_water`), `endReason` (why a run ended early), `quietTravel` (fan switching on for the run), `fanSpeed` (fan preset the scheduler last set), `fencedDoors` (doors walled off for the run) |
+| `run`, `lastRun` | Origin, targets, done rooms, current room, pending next room, `pendingSince` (when the robot was first seen cleaning in the pending room), abort reason, paused, outcome (`completed`, `aborted`, `stopped`, `stalled`, `error`, `no_water`), `endReason` (why a run ended early), `quietTravel` (fan switching on for the run), `fanSpeed` (fan preset the scheduler last set), `fencedDoors` (doors walled off for the run) |
 | `fenceRestorePending` | Scheduler walls may still be on the robot. No run starts until the owner's set is back |
 | `waterEmpty` | The clean water counts as empty. Plans are vacuum only |
 | `tripCost` | Learned trip cost |
@@ -517,10 +542,10 @@ shadow state. It never stops the error announcer.
   sets them. A robot that goes to the dock in the middle of a job without either, and stays there for two
   polls, ends the run early. Its current room then counts as done. Check this during the `log_only` period.
 - A robot in `error` for less than `stall_timeout` keeps its run open, so a stuck robot that is freed and
-  resumes soon is still the same run. One freed later is a new run. If that was the scheduler's own run, the
-  resumed job is watched as a run started elsewhere: the live occupancy-routing rules no longer apply to it.
-- A run started elsewhere is split when the reported operation mode differs after a stop. A robot that
-  reported another mode while it washed its mop would split one job into two; its current room stays dirty.
+  resumes soon is still the same run. One freed later is a new run, tracked as a run found in progress.
+- A run found in progress learns where it is from the map's `active` segments. Valetudo's Dreame code sets
+  them; a robot that does not falls back to `min_dwell` for every room. The order the robot cleans them in is
+  not known, so the scheduler assumes a nearest-neighbour tour from the robot's room.
 - The times of vacuum passes made while out of water are kept in memory. After a restart, each room due for a
   full clean gets one more vacuum pass.
 - A sticky room presence token can block rooms for hours. The skip reasons show it.
