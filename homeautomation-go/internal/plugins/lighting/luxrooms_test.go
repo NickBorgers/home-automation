@@ -315,12 +315,14 @@ func TestProductionConfig_PresenceBrightensOnlyItsOwnRoom(t *testing.T) {
 		{"kitchen winddown occupied", at(21, 30), "winddown", "isKitchenOccupied", true, "Kitchen"},
 		{"kitchen dusk occupied", at(19, 45), "dusk", "isKitchenOccupied", true, "Kitchen"},
 		{"kitchen night empty", at(22, 30), "night", "isKitchenOccupied", false, ""},
-		{"kitchen day occupied", at(12, 0), "day", "isKitchenOccupied", true, ""},
+		{"kitchen day occupied", at(14, 0), "day", "isKitchenOccupied", true, "Kitchen"},
+		{"kitchen morning occupied", at(9, 0), "morning", "isKitchenOccupied", true, ""},
 		{"pantry night occupied", at(22, 30), "night", "isPantryOccupied", true, "Pantry"},
 		{"pantry winddown occupied", at(21, 30), "winddown", "isPantryOccupied", true, "Pantry"},
 		{"pantry dusk occupied", at(19, 45), "dusk", "isPantryOccupied", true, "Pantry"},
 		{"pantry night empty", at(22, 30), "night", "isPantryOccupied", false, ""},
-		{"pantry day occupied", at(12, 0), "day", "isPantryOccupied", true, ""},
+		{"pantry day occupied", at(14, 0), "day", "isPantryOccupied", true, "Pantry"},
+		{"pantry morning occupied", at(9, 0), "morning", "isPantryOccupied", true, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
