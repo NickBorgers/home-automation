@@ -57,7 +57,7 @@ not start.
 |------|--------|
 | Lighting | Common-area rooms gate on `isAnyoneHomeAndAwake`, so they wake. Primary Suite lighting skips while `isMasterAsleep`. |
 | Music | The `morning` zone gains a trigger group: `isEarlyWakeActive=true` + `isAnyoneHome=true`, any day phase (before 06:00 or dawn the phase is still `night`). The `sleep` zone keeps Primary Bed; Primary Bed is excluded from `morning` while `isMasterAsleep`. |
-| Announcements | A deferable announcement that sleep would suppress plays on the requested speakers minus `bedroom_speakers` (`configs/notification_config.yaml`). If none remain, or `bedroom_speakers` is empty, it stays suppressed. Urgent announcements are unchanged. |
+| Announcements | A deferable announcement that sleep would suppress plays on the requested speakers minus `bedroom_speakers` (`configs/notification_config.yaml`): Primary Bed and Primary Bath, the two speakers of the primary suite. If none remain, or `bedroom_speakers` is empty, it stays suppressed. Urgent announcements are unchanged. |
 | Security (private) | Lockdown turns off. A person detected outside raises no alert and flashes no lights. |
 
 ## What turns it off

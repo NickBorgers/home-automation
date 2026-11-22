@@ -34,35 +34,30 @@ type AnnouncementConfig struct {
 	// RepeatInterval is parsed from a Go duration string (e.g. "2h").
 	RepeatIntervalRaw string `yaml:"repeat_interval"`
 
-	MessagePrefix string   `yaml:"message_prefix"`
-	Speakers      []string `yaml:"speakers"`
+	MessagePrefix string `yaml:"message_prefix"`
+
+	// Speakers overrides the notifier's default_speakers. Leave it empty so
+	// errors play on the shared announcement list.
+	Speakers []string `yaml:"speakers"`
 
 	// RepeatInterval holds the parsed duration. Populated by LoadConfig.
 	RepeatInterval time.Duration `yaml:"-"`
 }
 
 // ClearAnnouncementConfig governs the TTS confirmation sent when an error clears.
+// It plays on the notifier's default_speakers, like every other announcement.
 type ClearAnnouncementConfig struct {
-	Message  string   `yaml:"message"`
-	Speakers []string `yaml:"speakers"`
+	Message string `yaml:"message"`
 }
 
 // Default values applied when fields are missing from the YAML file.
 const (
-	defaultErrorSensorID        = "sensor.valetudo_mellowslimyloris_error"
-	defaultNoErrorValue         = "No error"
-	defaultRepeatInterval       = 2 * time.Hour
-	defaultMessagePrefix        = "Casper needs attention"
-	defaultClearMessage         = "You have satisfied Casper"
-	defaultClearSpeakerEntityID = "media_player.sitting"
+	defaultErrorSensorID  = "sensor.valetudo_mellowslimyloris_error"
+	defaultNoErrorValue   = "No error"
+	defaultRepeatInterval = 2 * time.Hour
+	defaultMessagePrefix  = "Casper needs attention"
+	defaultClearMessage   = "You have satisfied Casper"
 )
-
-var defaultSpeakers = []string{
-	"media_player.lounge",
-	"media_player.sitting",
-	"media_player.primary_bed",
-	"media_player.kids_bathroom",
-}
 
 // LoadConfig reads the vacuum plugin config from a YAML file. Missing fields
 // fall back to conservative defaults so a partially-specified config still works.
@@ -93,14 +88,8 @@ func (c *Config) applyDefaultsAndValidate() error {
 	if c.Vacuum.Announcement.MessagePrefix == "" {
 		c.Vacuum.Announcement.MessagePrefix = defaultMessagePrefix
 	}
-	if len(c.Vacuum.Announcement.Speakers) == 0 {
-		c.Vacuum.Announcement.Speakers = append([]string(nil), defaultSpeakers...)
-	}
 	if c.Vacuum.ClearAnnouncement.Message == "" {
 		c.Vacuum.ClearAnnouncement.Message = defaultClearMessage
-	}
-	if len(c.Vacuum.ClearAnnouncement.Speakers) == 0 {
-		c.Vacuum.ClearAnnouncement.Speakers = []string{defaultClearSpeakerEntityID}
 	}
 
 	if c.Vacuum.Announcement.RepeatIntervalRaw == "" {

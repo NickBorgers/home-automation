@@ -409,12 +409,7 @@ func (m *Manager) handleNickHomeChange(entityID string, oldState, newState *ha.S
 
 		if wasAnyoneHome {
 			// Run announcement asynchronously to avoid deadlocks
-			go m.announceArrivalDirect("Nick", "Nick is home", []string{
-				"media_player.lounge",
-				"media_player.sitting",
-				"media_player.primary_bed",
-				"media_player.kids_bathroom",
-			})
+			go m.announceArrivalDirect("Nick", "Nick is home")
 		} else {
 			m.logger.Debug("Nobody else was home, not announcing Nick's arrival")
 		}
@@ -482,13 +477,7 @@ func (m *Manager) handleCarolineHomeChange(entityID string, oldState, newState *
 
 		if wasAnyoneHome {
 			// Run announcement asynchronously to avoid deadlocks
-			go m.announceArrivalDirect("Caroline", "Caroline is home", []string{
-				"media_player.lounge",
-				"media_player.sitting",
-				"media_player.primary_bed",
-				"media_player.kids_bathroom",
-				"media_player.office",
-			})
+			go m.announceArrivalDirect("Caroline", "Caroline is home")
 		} else {
 			m.logger.Debug("Nobody else was home, not announcing Caroline's arrival")
 		}
@@ -541,13 +530,7 @@ func (m *Manager) handleAssistantHereChange(entityID string, oldState, newState 
 
 		if wasAnyoneHome {
 			// Run announcement asynchronously to avoid deadlocks
-			go m.announceArrivalDirect("Assistant", "Assistant is here", []string{
-				"media_player.lounge",
-				"media_player.sitting",
-				"media_player.primary_bed",
-				"media_player.kids_bathroom",
-				"media_player.office",
-			})
+			go m.announceArrivalDirect("Assistant", "Assistant is here")
 		} else {
 			m.logger.Debug("Nobody else was home, not announcing Assistant's arrival")
 		}
@@ -656,12 +639,11 @@ func (m *Manager) handleCarolineNearHomeChange(entityID string, oldState, newSta
 }
 
 // announceArrivalDirect makes an arrival announcement via the shared alerter
-// (caller has already checked if someone is home).
-func (m *Manager) announceArrivalDirect(person, message string, mediaPlayers []string) {
+// on the notifier's default speakers (caller has already checked if someone is home).
+func (m *Manager) announceArrivalDirect(person, message string) {
 	m.logger.Info("Announcing arrival",
 		zap.String("person", person),
-		zap.String("message", message),
-		zap.Strings("media_players", mediaPlayers))
+		zap.String("message", message))
 
 	if m.alerter == nil {
 		m.logger.Warn("alerter not configured, skipping arrival announcement")
@@ -675,7 +657,6 @@ func (m *Manager) announceArrivalDirect(person, message string, mediaPlayers []s
 		Urgency:  notify.UrgencyDeferable,
 		Tags:     []string{"house"},
 		Priority: ntfy.PriorityDefault,
-		Speakers: mediaPlayers,
 	}); err != nil && !errors.Is(err, notify.ErrSuppressedAsleep) {
 		m.logger.Error("Failed to announce arrival",
 			zap.String("person", person),

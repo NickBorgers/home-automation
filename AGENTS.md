@@ -528,7 +528,8 @@ These speakers are discovered by SoCo and match the `player_name` values in `con
 | Barn | No | Not used in music automation |
 | Soundbar | Yes | All Kitchen-containing zones (morning, day, evening, winddown, sleep-prep). Never a leader: it switches to TV audio. Not used for TTS notifications |
 
-The old "Bedroom" speaker (`media_player.bedroom`) is offline.
+Primary Bath's Home Assistant entity is `media_player.primary_bath` (it used to be `media_player.bedroom`).
+All TTS announcements play on `notification.default_speakers` in `configs/notification_config.yaml`.
 Run `curl -s https://soco-cli.featherback-mermaid.ts.net/rediscover` before you trust the list. A stale cache can hide speakers.
 
 ### Key Implementation Details

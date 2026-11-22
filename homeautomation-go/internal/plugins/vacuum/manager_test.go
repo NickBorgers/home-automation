@@ -33,7 +33,6 @@ func newTestConfig() *Config {
 		"media_player.kids_bathroom",
 	}
 	cfg.Vacuum.ClearAnnouncement.Message = "You have satisfied Casper"
-	cfg.Vacuum.ClearAnnouncement.Speakers = []string{"media_player.sitting_room"}
 	return cfg
 }
 
@@ -266,7 +265,7 @@ func TestVacuum_ErrorClearsWhileSomeoneHome_AnnouncesClearTTS(t *testing.T) {
 	calls := mockNotifier.Calls()
 	require.Len(t, calls, 1, "expected clear confirmation TTS")
 	assert.Equal(t, "You have satisfied Casper", calls[0].Message)
-	assert.Equal(t, []string{"media_player.sitting_room"}, calls[0].Speakers)
+	assert.Empty(t, calls[0].Speakers, "the clear confirmation uses the notifier's default_speakers")
 	assert.Equal(t, notify.UrgencyDeferable, calls[0].Urgency)
 }
 
@@ -301,10 +300,6 @@ func TestVacuum_ErrorClears_UsesClearAnnouncementConfigOverride(t *testing.T) {
 	t.Parallel()
 	mgr, mockHA, stateMgr, _, mockNotifier := newTestManager(t, false, time.Now())
 	mgr.cfg.Vacuum.ClearAnnouncement.Message = "Robot status nominal"
-	mgr.cfg.Vacuum.ClearAnnouncement.Speakers = []string{
-		"media_player.sitting_room",
-		"media_player.kitchen",
-	}
 	mockHA.SimulateStateChange(testErrorSensor, "No error")
 	require.NoError(t, stateMgr.SetBool("isAnyoneHome", true))
 	require.NoError(t, mgr.Start())
@@ -316,7 +311,7 @@ func TestVacuum_ErrorClears_UsesClearAnnouncementConfigOverride(t *testing.T) {
 	calls := mockNotifier.Calls()
 	require.Len(t, calls, 1)
 	assert.Equal(t, "Robot status nominal", calls[0].Message)
-	assert.Equal(t, []string{"media_player.sitting_room", "media_player.kitchen"}, calls[0].Speakers)
+	assert.Empty(t, calls[0].Speakers, "the clear confirmation uses the notifier's default_speakers")
 }
 
 func TestVacuum_ReadOnly_StillRecordsAndCallsNotifier(t *testing.T) {
@@ -359,9 +354,8 @@ func TestVacuum_LoadConfigDefaults(t *testing.T) {
 	assert.Equal(t, defaultNoErrorValue, cfg.Vacuum.NoErrorValue)
 	assert.Equal(t, defaultMessagePrefix, cfg.Vacuum.Announcement.MessagePrefix)
 	assert.Equal(t, defaultRepeatInterval, cfg.Vacuum.Announcement.RepeatInterval)
-	assert.Equal(t, defaultSpeakers, cfg.Vacuum.Announcement.Speakers)
+	assert.Empty(t, cfg.Vacuum.Announcement.Speakers, "errors use the notifier's default_speakers")
 	assert.Equal(t, defaultClearMessage, cfg.Vacuum.ClearAnnouncement.Message)
-	assert.Equal(t, []string{defaultClearSpeakerEntityID}, cfg.Vacuum.ClearAnnouncement.Speakers)
 }
 
 func TestVacuum_LoadConfigInvalidDuration(t *testing.T) {

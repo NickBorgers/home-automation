@@ -992,18 +992,17 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 import "homeautomation/pkg/notify"
 
 // Deferable announcement (dropped while master is asleep; e.g. presence, vacuum errors)
-m.notifier.Announce(m.ctx, "Casper needs attention: dustbin missing",
-    notify.WithSpeakers([]string{"media_player.kitchen", "media_player.front_room"}),
-)
+m.notifier.Announce(m.ctx, "Casper needs attention: dustbin missing")
 
 // Urgent announcement (e.g. doorbell, intruder, EV-charger overheat)
 m.notifier.Announce(m.ctx, "Person detected outside",
-    notify.WithSpeakers(securitySpeakers),
     notify.WithUrgency(notify.UrgencyUrgent),
 )
 ```
 
-`WithSpeakers` is optional — if omitted, the notifier uses the `default_speakers` list from `configs/notification_config.yaml`.
+Without `WithSpeakers`, the notifier uses `default_speakers` from `configs/notification_config.yaml`. That is
+the one speaker list for all announcements, so plugins should not keep their own copies. Use `WithSpeakers` only
+when an announcement must play on a different set on purpose.
 
 ### Urgency levels
 

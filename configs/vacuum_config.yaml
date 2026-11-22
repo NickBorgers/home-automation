@@ -20,19 +20,14 @@ vacuum:
     # Sentence prefix; the error description is appended after a colon.
     message_prefix: "Casper needs attention"
 
-    # Speakers to announce on.
-    speakers:
-      - "media_player.lounge"
-      - "media_player.sitting"
-      - "media_player.primary_bed"
-      - "media_player.kids_bathroom"
+    # Error announcements play on notification.default_speakers in
+    # notification_config.yaml, the one speaker list for all announcements.
 
   clear_announcement:
     # Feel-good recovery confirmation after a real error returns to no_error_value.
     # Uses UrgencyDeferable, so it is skipped while master is asleep.
+    # Plays on notification.default_speakers, like every other announcement.
     message: "You have satisfied Casper"
-    speakers:
-      - "media_player.sitting"
 
   # Reserved for future use:
   # entity_id: "vacuum.valetudo_mellowslimyloris"

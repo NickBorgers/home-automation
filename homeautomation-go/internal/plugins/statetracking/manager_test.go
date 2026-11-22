@@ -637,7 +637,6 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 		entityID        string
 		expectedMessage string
 		setupState      func(*state.Manager)
-		expectedPlayers []string
 	}{
 		{
 			name:            "Nick arrival announced when someone home",
@@ -647,12 +646,6 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 				// Caroline is already home, Nick is away
 				sm.SetBool("isCarolineHome", true)
 				sm.SetBool("isNickHome", false)
-			},
-			expectedPlayers: []string{
-				"media_player.lounge",
-				"media_player.sitting",
-				"media_player.primary_bed",
-				"media_player.kids_bathroom",
 			},
 		},
 		{
@@ -664,13 +657,6 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 				sm.SetBool("isNickHome", true)
 				sm.SetBool("isCarolineHome", false)
 			},
-			expectedPlayers: []string{
-				"media_player.lounge",
-				"media_player.sitting",
-				"media_player.primary_bed",
-				"media_player.kids_bathroom",
-				"media_player.office",
-			},
 		},
 		{
 			name:            "Assistant arrival announced when someone home",
@@ -680,13 +666,6 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 				// Nick is already home, Assistant is not here
 				sm.SetBool("isNickHome", true)
 				sm.SetBool("isAssistantHere", false)
-			},
-			expectedPlayers: []string{
-				"media_player.lounge",
-				"media_player.sitting",
-				"media_player.primary_bed",
-				"media_player.kids_bathroom",
-				"media_player.office",
 			},
 		},
 	}
@@ -723,20 +702,9 @@ func TestStateTrackingManager_ArrivalAnnouncements(t *testing.T) {
 				t.Errorf("Expected message='%s', got %q", tt.expectedMessage, ann.Body)
 			}
 
-			if len(ann.Speakers) != len(tt.expectedPlayers) {
-				t.Errorf("Expected %d media players, got %d", len(tt.expectedPlayers), len(ann.Speakers))
-			}
-			for _, expected := range tt.expectedPlayers {
-				found := false
-				for _, actual := range ann.Speakers {
-					if actual == expected {
-						found = true
-						break
-					}
-				}
-				if !found {
-					t.Errorf("Expected media player %s not found in announcement", expected)
-				}
+			// No speaker list: the notifier plays it on default_speakers.
+			if len(ann.Speakers) != 0 {
+				t.Errorf("Expected no speaker override, got %v", ann.Speakers)
 			}
 		})
 	}
@@ -1280,41 +1248,22 @@ func TestStateTrackingManager_ArrivalDebounce_FirstArrivalNotSuppressed(t *testi
 	}
 }
 
-func TestAnnounceArrivalDirect_PreservesSpeakersWhenGrouped(t *testing.T) {
-	// Arrival TTS uses HA announce mode; the target list must not be rewritten
-	// even when Sonos speakers are grouped (regression: #1145).
+func TestAnnounceArrivalDirect_UsesDefaultSpeakers(t *testing.T) {
+	// Arrival TTS names no speakers, so the notifier plays it on the shared
+	// default_speakers list.
 	logger := zap.NewNop()
 	mockHA := ha.NewMockClient()
 	stateMgr := state.NewManager(mockHA, logger, false)
 	mockAlerter := &alert.MockAlerter{}
 	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil, "", mockAlerter)
 
-	manager.announceArrivalDirect("Nick", "Nick is home", []string{
-		"media_player.lounge",
-		"media_player.sitting",
-		"media_player.primary_bed",
-		"media_player.kids_bathroom",
-		"media_player.office",
-	})
+	manager.announceArrivalDirect("Nick", "Nick is home")
 
 	calls := mockAlerter.Calls()
 	if len(calls) != 1 {
 		t.Fatalf("Expected exactly 1 announcement, got %d", len(calls))
 	}
-	expectedSpeakers := []string{
-		"media_player.lounge",
-		"media_player.sitting",
-		"media_player.primary_bed",
-		"media_player.kids_bathroom",
-		"media_player.office",
-	}
-	if len(calls[0].Speakers) != len(expectedSpeakers) {
-		t.Fatalf("Expected %d speakers, got %d: %v",
-			len(expectedSpeakers), len(calls[0].Speakers), calls[0].Speakers)
-	}
-	for i, expected := range expectedSpeakers {
-		if calls[0].Speakers[i] != expected {
-			t.Errorf("Expected speaker %d to be %q, got %q", i, expected, calls[0].Speakers[i])
-		}
+	if len(calls[0].Speakers) != 0 {
+		t.Errorf("Expected no speaker override, got %v", calls[0].Speakers)
 	}
 }

@@ -168,13 +168,10 @@ flowchart TD
     style skip fill:#95a5a6,color:#fff
 ```
 
-### Speaker Selection by Person
+### Speakers
 
-| Person | TTS Speakers |
-|--------|--------------|
-| Nick | Kitchen, Dining Room, Kids Bathroom |
-| Caroline | Kitchen, Dining Room, Kids Bathroom, Office |
-| Assistant | Kitchen, Dining Room, Kids Bathroom, Office |
+Every arrival announcement plays on `notification.default_speakers` in `configs/notification_config.yaml`,
+the one speaker list for all announcements.
 
 ## Owner Return Detection
 

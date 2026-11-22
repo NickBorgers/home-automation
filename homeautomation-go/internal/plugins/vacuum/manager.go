@@ -258,10 +258,8 @@ func (m *Manager) maybeAnnounceClear() {
 	}
 
 	message := m.cfg.Vacuum.ClearAnnouncement.Message
-	speakers := m.cfg.Vacuum.ClearAnnouncement.Speakers
 	err = m.notifier.Announce(m.ctx, message,
-		notify.WithUrgency(notify.UrgencyDeferable),
-		notify.WithSpeakers(speakers))
+		notify.WithUrgency(notify.UrgencyDeferable))
 	switch {
 	case errors.Is(err, notify.ErrSuppressedAsleep):
 		m.logger.Info("Vacuum clear TTS suppressed (sleep protected)")
@@ -271,8 +269,7 @@ func (m *Manager) maybeAnnounceClear() {
 			zap.Error(err))
 	default:
 		m.logger.Info("Vacuum clear announcement sent",
-			zap.String("message", message),
-			zap.Strings("speakers", speakers))
+			zap.String("message", message))
 	}
 }
 
@@ -313,8 +310,7 @@ func (m *Manager) maybeAnnounce(errorDesc string) {
 		m.recordAnnounced(now, message)
 	default:
 		m.logger.Info("Vacuum announcement sent",
-			zap.String("message", message),
-			zap.Strings("speakers", m.cfg.Vacuum.Announcement.Speakers))
+			zap.String("message", message))
 		m.recordAnnounced(now, message)
 	}
 }

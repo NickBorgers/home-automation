@@ -84,7 +84,6 @@ func setupVacuumTestWithDebounce(t *testing.T, fixedTime time.Time, unavailableD
 		"media_player.kids_bathroom",
 	}
 	cfg.Vacuum.ClearAnnouncement.Message = "You have satisfied Casper"
-	cfg.Vacuum.ClearAnnouncement.Speakers = []string{"media_player.sitting_room"}
 
 	tp := plugin.FixedTimeProvider{FixedTime: fixedTime}
 	// Use a real notifier with a fake TTS synthesizer so the resulting
@@ -331,7 +330,7 @@ func TestScenario_VacuumError_StopsRepeatingAfterClear(t *testing.T) {
 
 // TestScenario_VacuumError_ClearAnnouncesWhenSomeoneHome verifies the recovery
 // user story: when the robot transitions from an error to healthy and someone
-// is home, the sitting room speaker confirms that the vacuum is happy again.
+// is home, the shared announcement speakers confirm that the vacuum is happy again.
 func TestScenario_VacuumError_ClearAnnouncesWhenSomeoneHome(t *testing.T) {
 	t.Parallel()
 	env, cleanup := setupVacuumTest(t, time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC))
@@ -349,13 +348,13 @@ func TestScenario_VacuumError_ClearAnnouncesWhenSomeoneHome(t *testing.T) {
 	t.Log("WHEN: The error clears")
 	env.server.SetState(vacuumErrorEntity, "No error", nil)
 
-	t.Log("THEN: A deferable TTS confirmation is sent to the sitting room speaker")
+	t.Log("THEN: A deferable TTS confirmation is sent to the shared announcement speakers")
 	require.Eventually(t, func() bool {
 		return len(FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "media_player", "play_media")) >= 1
 	}, stateWaitTimeout, statePollInterval)
 	calls := FilterServiceCalls(env.server.GetServiceCallsSince(snapshot), "media_player", "play_media")
 	require.NotEmpty(t, calls)
-	assert.Equal(t, []interface{}{"media_player.sitting_room"}, calls[0].ServiceData["entity_id"])
+	assert.ElementsMatch(t, notify.DefaultConfig().DefaultSpeakers, toStringSlice(calls[0].ServiceData["entity_id"]))
 
 	msgs := env.synth.Messages()
 	require.Len(t, msgs, 2, "expected the original error message and the clear confirmation")
