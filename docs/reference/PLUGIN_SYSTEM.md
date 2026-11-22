@@ -848,7 +848,6 @@ An external plugin gets the public `pkg/ha.Client`. To read MQTT topics that Hom
 assert `ha.MQTTSubscriber` on it. The client from `WrapClient` implements it.
 
 ```go
-// In Start:
 sub, ok := ctx.HAClient.(ha.MQTTSubscriber)
 if !ok {
     return fmt.Errorf("Home Assistant client does not support MQTT")
@@ -861,14 +860,9 @@ mqttSub, err := sub.SubscribeMQTT("sensors/+/state", func(msg ha.MQTTMessage) {
     // Use msg.Topic and msg.Payload.
 })
 if err != nil {
-    return fmt.Errorf("subscribe to sensors/+/state: %w", err)
+    return fmt.Errorf("subscribe MQTT: %w", err)
 }
-p.mqttSub = mqttSub // keep it so Stop can unsubscribe
-
-// In Stop:
-if p.mqttSub != nil {
-    p.mqttSub.Unsubscribe()
-}
+defer mqttSub.Unsubscribe()
 ```
 
 `MQTTSubscriber` is separate from `Client`, so existing `Client` mocks keep compiling. A mock that wants
