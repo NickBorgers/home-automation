@@ -961,7 +961,6 @@ graph LR
         NickNearHome[isNickNearHome]
         CarolineNearHome[isCarolineNearHome]
         NickOffice[isNickOfficeOccupied]
-        Kitchen[isKitchenOccupied]
         PrimaryDoor[isPrimaryBedroomDoorOpen]
         SexModeInput[input_boolean.sex]
     end
@@ -996,6 +995,7 @@ graph LR
         TVon[isTVon]
         GridAvailable[isGridAvailable]
         Expecting[isExpectingSomeone]
+        Kitchen[isKitchenOccupied<br/>Frigate room-presence output]
     end
 
     subgraph "Plugins"
@@ -1231,9 +1231,9 @@ graph LR
 
 | Category | Count | Examples |
 |----------|-------|----------|
-| **Boolean (input)** | 19 | isNickHome, isCarolineHome, isAssistantHere, isMasterAsleep, isHaveGuests, isNickOfficeOccupied, isKitchenOccupied, isPrimaryBedroomDoorOpen, isNickNearHome, isCarolineNearHome, isFrontOfHousePersonPresent |
+| **Boolean (input)** | 18 | isNickHome, isCarolineHome, isAssistantHere, isMasterAsleep, isHaveGuests, isNickOfficeOccupied, isPrimaryBedroomDoorOpen, isNickNearHome, isCarolineNearHome, isFrontOfHousePersonPresent |
 | **Boolean (computed)** | 7 | isAnyOwnerHome, isAnyoneHome, isAnyoneAsleep, isEveryoneAsleep, isAnyoneHomeAndAwake, isGuestAsleep, isDarkOutside |
-| **Boolean (output)** | 5 | isFadeOutInProgress, isWakeSequenceActive, isSleepPrepActive, isLockdown, isEarlyWakeActive |
+| **Boolean (output)** | 6 | isFadeOutInProgress, isWakeSequenceActive, isSleepPrepActive, isLockdown, isEarlyWakeActive, isKitchenOccupied |
 | **Number** | 3 | alarmTime, remainingSolarGeneration, thisHourSolarGeneration |
 | **String (computed)** | 5 | dayPhase, sunevent, batteryEnergyLevel, currentEnergyLevel, solarProductionEnergyLevel |
 | **String (output)** | 3 | musicPlaybackType, currentlyPlayingMusicUri, musicPlaylistRotation |

@@ -174,7 +174,7 @@ lighting, the code (`manager.go`) had no override detection.
 | TV playing (`skip`) | Unchanged. Hue Sync owns the lights. The room marked `tv_room` still publishes its target as `tvRoomTargetLux`, and the TV plugin sets the TV and sync box brightness from it ([TV_BRIGHTNESS.md](TV_BRIGHTNESS.md)). |
 | Primary suite, `sleephygiene` | Not converted. Sleep and wake stay as they are. |
 | `increase_brightness_if_true: isHaveGuests` | Multiplies the target lux by a factor (proposed 1.5). |
-| Presence target override | A configured presence variable multiplies the curve's cans brightness in selected phases. It never bypasses a manual hold and never recalls a scene. Only the Kitchen and the Pantry use it, both on `isKitchenOccupied`. The Living room and the Mud room do not. |
+| Presence target override | A configured presence variable multiplies the curve's cans brightness in selected phases. It never bypasses a manual hold and never recalls a scene. Only the Kitchen and the Pantry use it, both on `isKitchenOccupied`, the logical output of Frigate camera room presence. The Living room and the Mud room do not. |
 | `READ_ONLY=true` | Logs what it would send and records the decision in shadow state. |
 
 ## Configuration sketch
@@ -348,7 +348,7 @@ What the code does, where it differs from the text above, and what is left.
 - **Expect dimmer evenings.** The phone-app tables were 3 to 4 times too low, so the same target now asks for a lower brightness. For example 40 lux in Living is now about 58%, not 100%. The lights will look dimmer in the evening than before. The chandeliers also change at night: the 1 lux night need is now above their 1% threshold, so they sit on at a few percent (about 2.5% in the Entryway, 5% in the Sitting Chandelier) where they used to be off or borderline.
 - **Chandeliers are `active` and brightness only.** Entryway (`light.entryway_chandelier`) and Sitting Chandelier (`light.sitting_chandelier`) are Lutron Diva dimmers in windowed entryways. The config key `color_temp: false` (default true) makes the plugin skip `color_temp_kelvin`, record no kelvin, and ignore kelvin when it checks for a manual change. Their tables now reach 100%.
 - **`accent_scene_group` is optional.** A room with only cans (Kitchen, Pantry, Mud) leaves it empty. The plugin then recalls no Hue scene for the room. It recalls its companion scenes, if any; no room lists one now.
-- **Presence overrides are config-driven.** `lux_control.presence_override` names the occupancy variable, eligible day phases, and `brightness_multiplier_pct`. While the variable is true, the cans brightness the curve asks for is multiplied by that percentage, up to 100%. The result is converted back to lux, so daylight still reduces it. Config validation rejects a phase name that is not a day phase. Example:
+- **Presence overrides are config-driven.** `lux_control.presence_override` names the occupancy variable, eligible day phases, and `brightness_multiplier_pct`. `isKitchenOccupied` is a logical state variable emitted by the room-presence plugin from Frigate camera events; its name does not imply that a radar sensor is installed or authoritative. While the variable is true, the cans brightness the curve asks for is multiplied by that percentage, up to 100%. The result is converted back to lux, so daylight still reduces it. Config validation rejects a phase name that is not a day phase. Example:
 
   ```yaml
   presence_override:
