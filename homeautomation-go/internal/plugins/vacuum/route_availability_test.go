@@ -1,6 +1,7 @@
 package vacuum
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
@@ -176,4 +177,37 @@ func TestSchedulerBlockedWaitTimesOutIntoAbort(t *testing.T) {
 	clearAreas(e.hub)
 	e.s.TickForTest(true)
 	assert.Equal(t, []string{cmdPause, cmdHome}, e.commandPaths())
+}
+
+// A start that keeps failing once the way is clear does not hold the robot paused for ever: when the wait runs
+// out, the run aborts and the robot goes home.
+func TestSchedulerBlockedWaitStartFailureStillTimesOut(t *testing.T) {
+	e := newSchedEnv(t, ModeActive, func(cfg *SchedulerConfig, _ *housemap.Map) {
+		cfg.RouteBlockedWaitRaw = "2m"
+		cfg.applyDefaultsAndValidate()
+	})
+	e.start()
+	e.startRun("kitchen", "lounge")
+	e.moveTo("lounge", 97)
+	e.advance(30 * time.Second)
+	e.robot.ClearCommands()
+
+	clearAreas(e.hub, "pantry")
+	e.s.TickForTest(true)
+	require.Equal(t, []string{cmdPause}, e.commandPaths())
+
+	// The way clears, but every basic control command fails.
+	const basicControl = "/api/v2/robot/capabilities/BasicControlCapability"
+	e.robot.Fail(basicControl, http.StatusInternalServerError)
+	clearAreas(e.hub)
+	e.s.TickForTest(true)
+	assert.False(t, e.sched().Run.Aborted, "start failed within the wait: try again later")
+	assert.True(t, e.sched().Run.Paused)
+
+	e.advance(150 * time.Second)
+	assert.True(t, e.sched().Run.Aborted, "start kept failing past the wait: give up the run")
+
+	e.robot.Fail(basicControl, 0)
+	e.s.TickForTest(true)
+	assert.Equal(t, []string{cmdPause, cmdHome}, e.commandPaths(), "the aborted run's robot goes home")
 }
