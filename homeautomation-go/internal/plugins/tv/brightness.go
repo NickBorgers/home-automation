@@ -274,7 +274,7 @@ func (m *Manager) applyTVBrightness(frac float64) shadowstate.DeviceBrightnessSt
 	out.Goal = s.Min + int(math.Round(share*float64(s.Max-s.Min)))
 	out.Current = s.Current
 	goal := out.Goal
-	if dev.last != nil && s.Current != *dev.last {
+	if dev.last != nil && s.Current != *dev.last && !m.readOnly {
 		lastSet := *dev.last
 		// A successful read can still return 0 while the panel is transitioning. Writing the
 		// same value is a no-op that confirms picture settings are currently writable without
