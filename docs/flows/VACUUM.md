@@ -467,17 +467,18 @@ flowchart TD
 
 - When the way home is clear, an unavailable route aborts the run at once and sends the robot home, as before.
 - When the way home is blocked too, the robot pauses and the run waits. The cause must be an occupied area
-  only: a sleeper's room or the battery floor aborts at once. A person who crosses the way for a few seconds
-  costs a short pause, not the run.
+  only: a sleeper's room or the battery floor aborts at once. A room kept from cleaning because an area in its
+  `quiet_for` is occupied counts as an occupied area, so the run waits for it too. A person who crosses the way
+  for a few seconds costs a short pause, not the run.
   - If the whole route is available again within `route_blocked_wait` (default 5 minutes), the scheduler
     sends `start`. Valetudo resumes the job it paused and cleans the rooms that are left. The run goes on as
     one run and is not aborted.
   - If the route stays blocked past `route_blocked_wait`, the run aborts with the reason it had. A paused
     robot then goes home once its way is clear, and the unfinished rooms stay dirty.
-  - A failed `start` is tried again on each poll until the wait is over.
+  - A failed `start` is tried again on each poll until the wait is over. Then the run aborts.
 - A paused robot of an aborted run goes home once the way clears. It does not resume the run.
 - A remaining room enters `no_clean` when a sleeper falls asleep next door, or when an area in its `quiet_for`
-  fills. Both end the run the same way, even while the robot is cleaning that room.
+  fills. Either one makes the route unavailable, even while the robot is cleaning that room.
 - A robot the scheduler paused is waiting for its way home, whether it reports `paused` or `idle`. That run never
   ends by stall, and an `idle` robot does not end it either. Only `error` still ends it after `stall_timeout`.
 - A robot in a `no_enter` room has no available onward route at once, whether it went off the planned way or

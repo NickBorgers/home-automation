@@ -1317,6 +1317,9 @@ func (s *Scheduler) checkRouteAvailability(st *valetudo.State, room string, posO
 		return
 	}
 
+	crossed, ok := LegCrosses(s.graph, at, s.dockRoom, restr.NoEnter)
+	clear := ok && crossed == ""
+
 	goingHome := r.aborted || r.paused || st.Status == valetudo.StatusReturning
 	var waiting bool
 	if !goingHome {
@@ -1329,13 +1332,10 @@ func (s *Scheduler) checkRouteAvailability(st *valetudo.State, room string, posO
 			zap.Strings("unfinished", r.remaining()))
 		// An occupied area often clears in seconds. When the way home is blocked too, the robot pauses in place
 		// and the run waits for it before it gives up.
-		crossed, ok := LegCrosses(s.graph, at, s.dockRoom, restr.NoEnter)
-		waiting = s.routeWaitable(st, at) && !(ok && crossed == "")
+		waiting = s.routeWaitable(st, at) && !clear
 		r.aborted = !waiting
 	}
 
-	crossed, ok := LegCrosses(s.graph, at, s.dockRoom, restr.NoEnter)
-	clear := ok && crossed == ""
 	switch {
 	case clear && (r.paused || (r.aborted && !r.homeSent)):
 		why := r.abortReason
@@ -1361,10 +1361,11 @@ func (s *Scheduler) checkRouteAvailability(st *valetudo.State, room string, posO
 
 // routeWaitable says whether a route that is unavailable may be waited for. It may when only occupied areas
 // make it unavailable, because a person moves on: the same check with no area occupied finds nothing wrong.
-// A sleeper's room, a battery at its floor, or a robot in a room it must not enter for another reason cannot
-// be waited for.
+// A room within earshot (quiet_for) of an occupied area is kept from cleaning by that area, so it may be
+// waited for too. A sleeper's room, a battery at its floor, or a robot in a room it must not enter for
+// another reason cannot be waited for.
 func (s *Scheduler) routeWaitable(st *valetudo.State, at string) bool {
-	free := ComputeRestrictions(s.graph, nil, s.sleeperRooms(), nil)
+	free := ComputeRestrictions(s.graph, nil, s.sleeperRooms(), s.quietFor())
 	return s.routeUnavailableReason(st, free, at) == ""
 }
 
@@ -1378,10 +1379,10 @@ func (s *Scheduler) checkBlockedWait(now time.Time, st *valetudo.State, restr Re
 	case reason == "":
 		// Start resumes the job the pause left; Valetudo keeps the rooms still to clean.
 		if s.command(valetudo.ActionStart, "route is clear again") != nil {
-			if now.Sub(r.waitSince) >= s.cfg.RouteBlockedWait {
-				break // start kept failing; give up — fall through to abort
+			if now.Sub(r.waitSince) < s.cfg.RouteBlockedWait {
+				return true // try again on the next poll, until the wait runs out
 			}
-			return true // try again on the next poll, until the wait runs out
+			break // start kept failing until the wait ran out: give up the run
 		}
 		s.logger.Info("Vacuum route is available again; resuming the run", zap.Duration("waited", now.Sub(r.waitSince)),
 			zap.Strings("unfinished", r.remaining()))
