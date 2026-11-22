@@ -85,7 +85,7 @@ ul.plain { margin: 0; padding-left: 18px; } ul.plain li { margin: 3px 0; }
   <header>
     <span class="eyebrow">{{.Source}} · metres, north up</span>
     <h1>House Floor Plan</h1>
-    <p class="sub">Drawn from the map file itself. It has {{.NRooms}} rooms{{if .Valetudo}}, drawn from a vacuum map turned {{.Valetudo.RotationDeg}}° to north-up{{end}}. Thick dark lines are outside walls, guessed from the rooms. Blue bars are doors, orange bars are outside doors, and gaps in the outline are open-plan openings. Camera wedges show each camera's field of view and range: blue for outdoor cameras, purple for indoor cameras. Grid lines are 5 m apart.</p>
+    <p class="sub">Drawn from the map file itself. It has {{.NRooms}} rooms{{if .Valetudo}}, drawn from a vacuum map turned {{.Valetudo.RotationDeg}}° to north-up{{end}}. Thick dark lines are outside walls, explicitly defined in the map file. Blue bars are doors, orange bars are outside doors, and gaps in the outline are open-plan openings. Camera wedges show each camera's field of view and range: blue for outdoor cameras, purple for indoor cameras. Grid lines are 5 m apart.</p>
   </header>
 
   <div class="grid2">
