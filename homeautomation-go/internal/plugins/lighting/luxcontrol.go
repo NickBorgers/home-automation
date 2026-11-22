@@ -553,6 +553,18 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 		return
 	}
 
+	// Re-read under lock before sending: a handleCansChange between the first unlock and here
+	// may have started a hold check. Sending now would overwrite the person's change, and the
+	// confirming read would see our own command and clear the check without holding.
+	m.luxMu.Lock()
+	if st.checking != nil {
+		st.checking.skipped = true
+		m.luxMu.Unlock()
+		finish("checking a possible manual change, lights left alone" + note)
+		return
+	}
+	m.luxMu.Unlock()
+
 	if !luxActive(room) || m.readOnly {
 		m.luxMu.Lock()
 		st.previous = st.cmd
@@ -654,13 +666,14 @@ func (m *Manager) sendLuxCommand(room *RoomConfig, cmd *luxCommand) error {
 	return m.haClient.CallService(m.ctx, "light", service, data)
 }
 
-// handleCansChange checks every report from the cans the moment it arrives. No window exists in
-// which reports are ignored. During a fade, a report counts as manual when it is not on the
-// fade's path (manualChangeReason). A brightness or color report off the path is confirmed by a
-// fresh read before the room is held (confirmLuxHold), because a light group's report can arrive
-// late or out of order while fades settle. The loop sends nothing while it waits. A turn-on or
-// turn-off against the command holds at once. A turn-on after a commanded off is stabilized so
-// the stale off transition cannot win.
+// handleCansChange checks every report from the cans the moment it arrives. While a
+// brightness-or-color hold check is running (st.checking != nil), subsequent reports for the same
+// room are dropped; only the first off-path report triggers the loop. During a fade, a report
+// counts as manual when it is not on the fade's path (manualChangeReason). A brightness or color
+// report off the path is confirmed by a fresh read before the room is held (confirmLuxHold),
+// because a light group's report can arrive late or out of order while fades settle. The loop
+// sends nothing while it waits. A turn-on or turn-off against the command holds at once. A
+// turn-on after a commanded off is stabilized so the stale off transition cannot win.
 func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 	if newState == nil || m.readOnly || !luxActive(room) {
 		return

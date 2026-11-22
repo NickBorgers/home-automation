@@ -102,7 +102,7 @@ func TestScenario_LuxLateGroupReportDoesNotHoldButManualChangeDoes(t *testing.T)
 	// WHEN: a person turns the cans down to 40% and leaves them there
 	t.Log("WHEN: a person turns the cans down to 40%")
 	report(102)
-	mockClock.AdvanceAndProcess(6 * time.Second) // the confirming read
+	mockClock.AdvanceAndProcess(6 * time.Second) // the confirming read (> luxHoldConfirmDelay = 5 s)
 
 	// THEN: the room is held, and the hold is stored in Home Assistant
 	t.Log("THEN: the room is held")
