@@ -202,7 +202,7 @@ func TestLuxRooms_ManualChangeHoldsEachRoom(t *testing.T) {
 			clk.Advance(2 * time.Minute)
 			report := canReport("on", 255, 3000)
 			report.EntityID = room.LuxControl.Cans
-			m.handleCansChange(room, report)
+			changeCansByHand(m, env, clk, room, report)
 			assert.True(t, m.luxHeld(room))
 
 			env.MockHA.ClearServiceCalls()
