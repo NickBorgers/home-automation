@@ -103,7 +103,7 @@ carry it. To remove it, follow the `monitoring-coverage` skill. That skill keeps
 
 ## Step 5: Set the battery report threshold
 
-Our practice: battery-powered leak sensors report battery at every **5%** change. The device default is
+Our practice: battery-powered Z-Wave sensors report battery at every **5%** change. The device default is
 often 10%. At 10% the sensor reports so rarely that it looks stale, and `sensorhealth` raises false
 "offline" alerts.
 
@@ -151,6 +151,10 @@ If no new line appears, the restart reached a different service.
 
 ## Step 7: Verify the app watches the sensor
 
+**These commands are specific to moisture (water leak) sensors.** Door and temperature sensors are
+handled by a downstream private plugin; verification there looks different — check that plugin's shadow
+state and logs instead of the commands below.
+
 ```bash
 ../scripts/loki-query.sh '{service="home-automation"} |~ "(?i)leak sensors discovered|monitoring_ignore label"' 30m
 curl -s https://home-automation.featherback-mermaid.ts.net/api/shadow \
@@ -164,7 +168,10 @@ for s in json.load(sys.stdin)["plugins"]["environmental"]["outputs"]["waterLeakS
 
 ## Step 8: Test end to end
 
-Ask the user to trigger the sensor: wet a leak sensor's leads, or open a door. Then check:
+**These log strings are specific to moisture (water leak) sensors.** For other sensor types, adapt the
+log search to match the downstream plugin's output.
+
+Ask the user to trigger the sensor: wet a leak sensor's leads. Then check:
 
 ```bash
 ../scripts/loki-query.sh '{service="home-assistant"} |= "<moisture entity id>"' 15m
