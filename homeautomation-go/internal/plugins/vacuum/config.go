@@ -45,19 +45,18 @@ type AnnouncementConfig struct {
 }
 
 // ClearAnnouncementConfig governs the TTS confirmation sent when an error clears.
+// It plays on the notifier's default_speakers, like every other announcement.
 type ClearAnnouncementConfig struct {
-	Message  string   `yaml:"message"`
-	Speakers []string `yaml:"speakers"`
+	Message string `yaml:"message"`
 }
 
 // Default values applied when fields are missing from the YAML file.
 const (
-	defaultErrorSensorID        = "sensor.valetudo_mellowslimyloris_error"
-	defaultNoErrorValue         = "No error"
-	defaultRepeatInterval       = 2 * time.Hour
-	defaultMessagePrefix        = "Casper needs attention"
-	defaultClearMessage         = "You have satisfied Casper"
-	defaultClearSpeakerEntityID = "media_player.sitting"
+	defaultErrorSensorID  = "sensor.valetudo_mellowslimyloris_error"
+	defaultNoErrorValue   = "No error"
+	defaultRepeatInterval = 2 * time.Hour
+	defaultMessagePrefix  = "Casper needs attention"
+	defaultClearMessage   = "You have satisfied Casper"
 )
 
 // LoadConfig reads the vacuum plugin config from a YAML file. Missing fields
@@ -91,9 +90,6 @@ func (c *Config) applyDefaultsAndValidate() error {
 	}
 	if c.Vacuum.ClearAnnouncement.Message == "" {
 		c.Vacuum.ClearAnnouncement.Message = defaultClearMessage
-	}
-	if len(c.Vacuum.ClearAnnouncement.Speakers) == 0 {
-		c.Vacuum.ClearAnnouncement.Speakers = []string{defaultClearSpeakerEntityID}
 	}
 
 	if c.Vacuum.Announcement.RepeatIntervalRaw == "" {

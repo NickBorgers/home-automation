@@ -30,9 +30,6 @@
 notification:
   # The one speaker list for announcements. Plugins do not keep their own
   # copies: an announcement without an explicit speaker list plays here.
-  # The only exception is the vacuum "You have satisfied Casper"
-  # confirmation (vacuum_config.yaml clear_announcement), which plays on
-  # one speaker on purpose.
   default_speakers:
     - media_player.lounge
     - media_player.sitting

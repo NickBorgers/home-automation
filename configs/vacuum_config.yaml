@@ -26,10 +26,8 @@ vacuum:
   clear_announcement:
     # Feel-good recovery confirmation after a real error returns to no_error_value.
     # Uses UrgencyDeferable, so it is skipped while master is asleep.
-    # Plays on one speaker on purpose, not on the shared announcement list.
+    # Plays on notification.default_speakers, like every other announcement.
     message: "You have satisfied Casper"
-    speakers:
-      - "media_player.sitting"
 
   # Reserved for future use:
   # entity_id: "vacuum.valetudo_mellowslimyloris"

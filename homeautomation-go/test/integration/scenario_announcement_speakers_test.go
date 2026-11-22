@@ -30,8 +30,8 @@ import (
 //   - Announcements that do not need a special speaker set play on
 //     notification.default_speakers from configs/notification_config.yaml.
 //   - No plugin carries its own copy of that list.
-//   - The vacuum "You have satisfied Casper" confirmation stays on the Sitting
-//     speaker only.
+//   - The vacuum "You have satisfied Casper" confirmation plays on the shared
+//     list too.
 //   - During an early wake, a deferable announcement skips both speakers of
 //     the primary suite (Primary Bed and Primary Bath).
 //
@@ -133,11 +133,11 @@ func TestScenario_AnnouncementSpeakers_VacuumErrorUsesSharedList(t *testing.T) {
 	t.Log("WHEN: the error clears")
 	server.SetState(vacuumErrorEntity, "No error", nil)
 
-	t.Log("THEN: the clear confirmation plays on the Sitting speaker only")
+	t.Log("THEN: the clear confirmation plays on the shared speaker list")
 	waitForServiceCallSince(t, server, snapshot, "media_player", "play_media")
 	calls = FilterServiceCalls(server.GetServiceCallsSince(snapshot), "media_player", "play_media")
 	require.Len(t, calls, 1)
-	assert.Equal(t, []string{"media_player.sitting"}, toStringSlice(calls[0].ServiceData["entity_id"]))
+	assert.ElementsMatch(t, announcementSpeakers, toStringSlice(calls[0].ServiceData["entity_id"]))
 }
 
 func TestScenario_AnnouncementSpeakers_ArrivalUsesSharedList(t *testing.T) {

@@ -998,11 +998,6 @@ m.notifier.Announce(m.ctx, "Casper needs attention: dustbin missing")
 m.notifier.Announce(m.ctx, "Person detected outside",
     notify.WithUrgency(notify.UrgencyUrgent),
 )
-
-// One speaker on purpose (e.g. the vacuum clear confirmation)
-m.notifier.Announce(m.ctx, "You have satisfied Casper",
-    notify.WithSpeakers([]string{"media_player.sitting"}),
-)
 ```
 
 Without `WithSpeakers`, the notifier uses `default_speakers` from `configs/notification_config.yaml`. That is
