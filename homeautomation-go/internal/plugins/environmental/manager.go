@@ -366,20 +366,20 @@ func (m *Manager) discoverWaterLeakSensors() error {
 		return fmt.Errorf("failed to get entity states: %w", err)
 	}
 
-	// Filter for water leak sensors (binary_sensor with device_class: moisture or entity_id containing "water_leak")
+	// Filter for water leak sensors: binary_sensor with device_class moisture, or, only when the entity
+	// has no device_class, an entity_id containing "water_leak". An entity with another device_class
+	// (for example the battery entity of a leak sensor device) is never a leak sensor.
 	var waterLeakStates []*ha.State
 	for _, state := range states {
 		if !strings.HasPrefix(state.EntityID, "binary_sensor.") {
 			continue
 		}
-		// Check device_class first
-		if deviceClass, ok := state.Attributes["device_class"].(string); ok {
+		if deviceClass, _ := state.Attributes["device_class"].(string); deviceClass != "" {
 			if deviceClass == "moisture" {
 				waterLeakStates = append(waterLeakStates, state)
-				continue
 			}
+			continue
 		}
-		// Also match by entity_id pattern
 		if strings.Contains(strings.ToLower(state.EntityID), "water_leak") {
 			waterLeakStates = append(waterLeakStates, state)
 		}

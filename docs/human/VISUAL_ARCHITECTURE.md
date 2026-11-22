@@ -1028,7 +1028,7 @@ graph LR
         HumiditySensors[sensor.*_humidity]
         WeatherStationHumidity[sensor.weather_station_humidity]
         WeatherStationIlluminance[sensor.weather_station_illuminance]
-        WaterLeakSensors[binary_sensor.*water_leak*]
+        WaterLeakSensors["binary_sensor.* (device_class moisture, or water_leak when no device_class)"]
         BatteryStateSensors[sensor.*_battery]
         NodeStatusSensors[sensor.*_node_status]
         WaterFlowSensor[sensor.droplet_flow_rate]
