@@ -354,6 +354,28 @@ func TestProductionConfig_PresenceBrightensOnlyItsOwnRoom(t *testing.T) {
 	}
 }
 
+// TestProductionConfig_LuxCurveHasNoSunAnchorAfterNoon asserts that the production curve has no
+// sun-based anchor between noon and dusk. A sun anchor after noon (e.g. goldenHour) can land after
+// schedule.dusk in summer, creating a dip-then-climb in the curve. The intent is: after noon, every
+// anchor is a schedule time so the evening follows the schedule, not the sun.
+func TestProductionConfig_LuxCurveHasNoSunAnchorAfterNoon(t *testing.T) {
+	t.Parallel()
+	cfg := loadProductionConfig(t)
+	require.NotNil(t, cfg.LuxCurve)
+	seenNoon := false
+	for _, p := range cfg.LuxCurve.Points {
+		if p.Anchor == "sun.noon" {
+			seenNoon = true
+			continue
+		}
+		if seenNoon {
+			assert.False(t, len(p.Anchor) > 4 && p.Anchor[:4] == "sun.",
+				"sun anchor %q found after noon; use a schedule anchor instead", p.Anchor)
+		}
+	}
+	assert.True(t, seenNoon, "expected sun.noon in the production curve")
+}
+
 // The Mud room is not next to the Kitchen. Kitchen presence must never turn it on or brighten it.
 func TestProductionConfig_MudIgnoresKitchenPresence(t *testing.T) {
 	t.Parallel()
