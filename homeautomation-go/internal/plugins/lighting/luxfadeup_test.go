@@ -123,9 +123,9 @@ func TestLux_HoldDetectionStillCatchesAChangeAgainstA30sFadeUp(t *testing.T) {
 	f.manager.luxTick()
 	f.clock.Advance(10 * time.Second)
 
-	// WHEN: the cans report a level below the start of the fade
-	f.manager.handleCansChange(f.room, canReport("on", 90, 5000)) // about 35%
+	// WHEN: the cans report a level below the start of the fade and stay there
+	f.changeByHand(canReport("on", 90, 5000)) // about 35%
 
-	// THEN: it is manual
+	// THEN: the confirming read still sees 35% (off the path of the fade up), so it is manual
 	assert.True(t, f.manager.luxHeld(f.room))
 }
