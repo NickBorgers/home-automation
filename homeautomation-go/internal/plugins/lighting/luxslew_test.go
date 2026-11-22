@@ -142,7 +142,7 @@ func TestLux_RestartWithCansOnStillCatchesALaterManualChange(t *testing.T) {
 	f.clock.Advance(time.Minute)
 
 	// WHEN: a person turns the cans down
-	f.manager.handleCansChange(f.room, canReport("on", 100, 5000))
+	f.changeByHand(canReport("on", 100, 5000))
 
 	// THEN: the adopted state is the baseline, so the change holds the room
 	assert.True(t, f.manager.luxHeld(f.room))

@@ -97,6 +97,19 @@ func canReport(state string, brightness255 float64, kelvin float64) *ha.State {
 	return &ha.State{EntityID: luxTestCans, State: state, Attributes: attrs}
 }
 
+// changeByHand is a person's change to the cans: Home Assistant holds the new state, its report
+// arrives, and the plugin's confirmation read runs.
+func (f *luxFixture) changeByHand(s *ha.State) {
+	changeCansByHand(f.manager, f.env, f.clock, f.room, s)
+}
+
+// changeCansByHand is changeByHand for any lux room.
+func changeCansByHand(m *Manager, env *testutil.Env, clk *clock.MockClock, room *RoomConfig, s *ha.State) {
+	env.MockHA.SetState(room.LuxControl.Cans, s.State, s.Attributes)
+	m.handleCansChange(room, s)
+	clk.Advance(luxHoldConfirmDelay)
+}
+
 func TestStartLux_ConfiguresOutdoorSmoothingWindow(t *testing.T) {
 	t.Parallel()
 	f := newLuxFixture(t, LuxModeLogOnly, false)
@@ -327,7 +340,7 @@ func TestLux_ManualBrightnessChangeHoldsTheRoom(t *testing.T) {
 	f := heldFixtureAfterCommand(t)
 
 	// WHEN: a person turns them up to 90%
-	f.manager.handleCansChange(f.room, canReport("on", 230, 5000))
+	f.changeByHand(canReport("on", 230, 5000))
 
 	// THEN: the room is held, and the loop leaves the cans alone
 	assert.True(t, f.manager.luxHeld(f.room))
@@ -391,7 +404,7 @@ func TestLux_ManualColorChangeAndPowerOffHold(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := heldFixtureAfterCommand(t)
-			f.manager.handleCansChange(f.room, tt.report)
+			f.changeByHand(tt.report)
 			assert.True(t, f.manager.luxHeld(f.room))
 		})
 	}
@@ -414,7 +427,7 @@ func TestLux_HoldSurvivesDayPhaseAndSunEventChanges(t *testing.T) {
 	// USER STORY: I turned the lights up in the evening. The system must not turn them back
 	// down at dusk, winddown or night.
 	f := heldFixtureAfterCommand(t)
-	f.manager.handleCansChange(f.room, canReport("on", 255, 3000))
+	f.changeByHand(canReport("on", 255, 3000))
 	require.True(t, f.manager.luxHeld(f.room))
 	f.env.MockHA.ClearServiceCalls()
 
@@ -441,7 +454,7 @@ func TestLux_ResetClearsHold(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := heldFixtureAfterCommand(t)
 			require.NoError(t, f.env.StateMgr.SetString("dayPhase", "day"))
-			f.manager.handleCansChange(f.room, tt.report)
+			f.changeByHand(tt.report)
 			require.True(t, f.manager.luxHeld(f.room))
 
 			// WHEN: reset runs
@@ -463,7 +476,7 @@ func TestLux_ResetClearsHold(t *testing.T) {
 func TestLux_HoldClearsWhenRoomCyclesOffAndOn(t *testing.T) {
 	t.Parallel()
 	f := heldFixtureAfterCommand(t)
-	f.manager.handleCansChange(f.room, canReport("on", 255, 3000))
+	f.changeByHand(canReport("on", 255, 3000))
 	require.True(t, f.manager.luxHeld(f.room))
 
 	// WHEN: everyone leaves (room off) and someone returns (room on)
@@ -505,7 +518,7 @@ func TestLux_HoldClearsWhenEveryoneAsleepOrLeaves(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := heldFixtureAfterCommand(t)
 			require.NoError(t, f.env.StateMgr.SetString("dayPhase", "night"))
-			f.manager.handleCansChange(f.room, canReport("on", 255, 3000))
+			f.changeByHand(canReport("on", 255, 3000))
 			require.True(t, f.manager.luxHeld(f.room))
 
 			tt.fire(f)
@@ -519,7 +532,7 @@ func TestLux_PlainSleepStateFlipDoesNotClearHold(t *testing.T) {
 	t.Parallel()
 	f := heldFixtureAfterCommand(t)
 	require.NoError(t, f.env.StateMgr.SetString("dayPhase", "day"))
-	f.manager.handleCansChange(f.room, canReport("on", 255, 3000))
+	f.changeByHand(canReport("on", 255, 3000))
 
 	f.manager.handleSleepStateChange("isEveryoneAsleep", true, false) // waking up
 

@@ -200,7 +200,7 @@ func TestLuxRooms_ChandelierManualChangeHoldsOnBrightnessOnly(t *testing.T) {
 	assert.False(t, m.luxHeld(room), "kelvin is ignored on a brightness-only light")
 
 	// A different brightness is manual.
-	m.handleCansChange(room, canReport("on", 255, 0))
+	changeCansByHand(m, env, clk, room, canReport("on", 255, 0))
 	assert.True(t, m.luxHeld(room))
 }
 

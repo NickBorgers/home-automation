@@ -108,6 +108,7 @@ func TestScenario_KitchenCameraPresenceOverridesOnlyAutomatedLuxTarget(t *testin
 		"brightness": 204.0, "color_temp_kelvin": 6500.0,
 	})
 	client.WaitForHandlers()
+	mockClock.AdvanceAndProcess(5 * time.Second) // the fresh read that confirms the manual change
 	require.NoError(t, stateManager.SetBool("isKitchenOccupied", true))
 	require.Eventually(t, func() bool {
 		st := manager.GetShadowState().Outputs.LuxControl["Kitchen"]
