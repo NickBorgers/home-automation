@@ -11,6 +11,17 @@ import (
 type MusicConfig struct {
 	Music map[string]MusicMode `yaml:"music"`
 	Zones []ZoneConfig         `yaml:"zones,omitempty"` // Phase 2: Zone definitions
+	// HandsOff lists speakers that the plugin must send no command to while a condition holds.
+	HandsOff []HandsOffRule `yaml:"hands_off,omitempty"`
+}
+
+// HandsOffRule names a speaker that the music plugin leaves alone while any condition in When holds.
+// Use it for a speaker that something else owns at times, such as a soundbar that plays TV audio.
+// While the rule holds, the speaker does not join a zone, and the plugin skips every command to it:
+// group, ungroup, volume, mute and playback.
+type HandsOffRule struct {
+	PlayerName string          `yaml:"player_name"`
+	When       []MuteCondition `yaml:"when"`
 }
 
 // ZoneConfig represents a zone definition for multi-zone playback

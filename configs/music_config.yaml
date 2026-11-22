@@ -110,6 +110,16 @@ zones:
     priority: 110  # Higher than sleep - used to wake someone up
     trigger: []
 
+# Speakers the music plugin leaves alone while a condition holds. While a rule holds, the
+# speaker does not join a zone, and the plugin sends it no command: no group, ungroup,
+# volume, mute or playback.
+hands_off:
+  # The Soundbar plays TV audio. Grouping it or fading its volume takes over the TV sound.
+  - player_name: "Soundbar"
+    when:
+      - variable: isTVPlaying
+        value: true
+
 music:
   # The first participant in each zone is the group leader. It streams the music and
   # feeds every follower, so it must have a strong network link and no exclude_if.

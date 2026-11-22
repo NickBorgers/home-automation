@@ -37,6 +37,12 @@ func TestScenario_MusicSoundbarFollowsKitchen(t *testing.T) {
 		}
 	}
 
+	t.Log("THEN: the music plugin leaves the Soundbar alone while the TV plays")
+	assert.Contains(t, config.HandsOff, music.HandsOffRule{
+		PlayerName: "Soundbar",
+		When:       []music.MuteCondition{{Variable: "isTVPlaying", Value: true}},
+	})
+
 	t.Log("WHEN: Kitchen-containing zones and Soundbar-containing zones are compared")
 	t.Log("THEN: Soundbar is grouped in every Kitchen zone and nowhere else")
 	assert.Equal(t, kitchenZones, soundbarZones)

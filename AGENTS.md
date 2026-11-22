@@ -558,7 +558,7 @@ These speakers are discovered by SoCo and match the `player_name` values in `con
 | Primary Bath | Yes | Follows Primary Bed in every household zone (morning through sleep) |
 | Sitting | Yes | |
 | Barn | No | Not used in music automation |
-| Soundbar | Yes | All Kitchen-containing zones (morning, day, evening, winddown, sleep-prep). Never a leader: it switches to TV audio. Not used for TTS notifications |
+| Soundbar | Yes | All Kitchen-containing zones (morning, day, evening, winddown, sleep-prep). Never a leader: it switches to TV audio. While `isTVPlaying=true`, the music plugin sends it no command at all (enforced by `hands_off` rule). Not used for TTS notifications |
 
 Primary Bath's Home Assistant entity is `media_player.primary_bath` (it used to be `media_player.bedroom`).
 All TTS announcements play on `notification.default_speakers` in `configs/notification_config.yaml`.

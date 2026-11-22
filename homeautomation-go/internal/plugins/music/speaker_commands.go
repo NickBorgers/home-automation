@@ -23,11 +23,52 @@ import (
 // getSpeakerVolume and isPlaybackActive. Startup reconciliation still reads HA.
 //
 // All methods take speaker names ("Kitchen", "Sitting") not entity IDs.
+//
+// Every command method first checks the hands_off rules. While a rule holds for
+// a speaker, the method skips the command and returns nil. This is the one place
+// that enforces the rule, so no code path can send a command to that speaker.
 // =============================================================================
+
+// isHandsOff reports whether a hands_off rule currently holds for the speaker.
+func (m *Manager) isHandsOff(speakerName string) bool {
+	for _, rule := range m.config.HandsOff {
+		if rule.PlayerName != speakerName {
+			continue
+		}
+		for _, condition := range rule.When {
+			value, err := m.getStateValue(condition.Variable)
+			if err != nil {
+				m.logger.Error("Failed to get state variable for hands_off rule",
+					zap.String("variable", condition.Variable),
+					zap.String("speaker", speakerName),
+					zap.Error(err))
+				continue
+			}
+			if m.valuesMatch(value, condition.Value) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// skipHandsOff reports whether to skip a command because the speaker is hands-off, and logs the skip.
+func (m *Manager) skipHandsOff(speakerName, command string) bool {
+	if !m.isHandsOff(speakerName) {
+		return false
+	}
+	m.logger.Info("Skipping speaker command: speaker is hands-off",
+		zap.String("speaker", speakerName),
+		zap.String("command", command))
+	return true
+}
 
 // speakerSetVolume sets a speaker's volume (0-100 percentage).
 // Routes to SoCo-CLI for direct UPnP control when available.
 func (m *Manager) speakerSetVolume(speakerName string, volumePercent int) error {
+	if m.skipHandsOff(speakerName, "volume") {
+		return nil
+	}
 	if m.socoClient != nil {
 		return m.socoClient.SetVolume(speakerName, volumePercent)
 	}
@@ -41,6 +82,9 @@ func (m *Manager) speakerSetVolume(speakerName string, volumePercent int) error 
 // speakerSetMute sets the mute state of a speaker.
 // Routes to SoCo-CLI for direct UPnP control when available.
 func (m *Manager) speakerSetMute(speakerName string, muted bool) error {
+	if m.skipHandsOff(speakerName, "mute") {
+		return nil
+	}
 	if m.socoClient != nil {
 		if muted {
 			return m.socoClient.Mute(speakerName)
@@ -57,6 +101,9 @@ func (m *Manager) speakerSetMute(speakerName string, muted bool) error {
 // speakerJoinGroup adds a single follower speaker to the lead speaker's group.
 // In SoCo/UPnP, the follower joins the lead. In HA, the lead adds the follower.
 func (m *Manager) speakerJoinGroup(followerName, leadName string) error {
+	if m.skipHandsOff(followerName, "join") || m.skipHandsOff(leadName, "join") {
+		return nil
+	}
 	if m.socoClient != nil {
 		return m.socoClient.GroupSpeaker(followerName, leadName)
 	}
@@ -72,6 +119,19 @@ func (m *Manager) speakerJoinGroup(followerName, leadName string) error {
 // For SoCo-CLI, each follower joins individually; errors are logged but do not
 // prevent remaining speakers from being attempted. For HA, uses a single batch call.
 func (m *Manager) speakerJoinGroupBatch(leadName string, followerNames []string) error {
+	if m.skipHandsOff(leadName, "join") {
+		return nil
+	}
+	var allowed []string
+	for _, follower := range followerNames {
+		if !m.skipHandsOff(follower, "join") {
+			allowed = append(allowed, follower)
+		}
+	}
+	if len(allowed) == 0 {
+		return nil
+	}
+	followerNames = allowed
 	if m.socoClient != nil {
 		var firstErr error
 		for _, follower := range followerNames {
@@ -101,6 +161,9 @@ func (m *Manager) speakerJoinGroupBatch(leadName string, followerNames []string)
 // speakerUnjoin removes a speaker from its current group.
 // Routes to SoCo-CLI for direct UPnP control when available.
 func (m *Manager) speakerUnjoin(speakerName string) error {
+	if m.skipHandsOff(speakerName, "unjoin") {
+		return nil
+	}
 	if m.socoClient != nil {
 		return m.socoClient.UngroupSpeaker(speakerName)
 	}
@@ -116,6 +179,9 @@ func (m *Manager) speakerUnjoin(speakerName string) error {
 // attempt timeout: soco-cli keeps running an abandoned ungroup, so a shorter
 // timeout would let the next SoCo-CLI request overlap it (issue #1431).
 func (m *Manager) speakerUnjoinBestEffort(speakerName string, timeout time.Duration) error {
+	if m.skipHandsOff(speakerName, "unjoin") {
+		return nil
+	}
 	if m.socoClient != nil {
 		return m.socoClient.UngroupSpeakerCtx(m.ctx, speakerName)
 	}
@@ -128,6 +194,9 @@ func (m *Manager) speakerUnjoinBestEffort(speakerName string, timeout time.Durat
 // speakerPlay resumes playback on a speaker.
 // Routes to SoCo-CLI for direct UPnP control when available.
 func (m *Manager) speakerPlay(speakerName string) error {
+	if m.skipHandsOff(speakerName, "play") {
+		return nil
+	}
 	if m.socoClient != nil {
 		return m.socoClient.Play(speakerName)
 	}
@@ -142,6 +211,9 @@ func (m *Manager) speakerPlay(speakerName string) error {
 // when available. Queue-based playback ensures Sonos repeat mode works correctly.
 // For Tidal playback, use socoClient.PlayShareLink directly instead.
 func (m *Manager) speakerPlayMedia(speakerName, mediaContentID, mediaContentType string) error {
+	if m.skipHandsOff(speakerName, "play_media") {
+		return nil
+	}
 	if m.socoClient != nil {
 		if mediaContentType != "" {
 			m.logger.Debug("SoCo-CLI queue-based playback does not use mediaContentType; parameter ignored",
@@ -161,6 +233,9 @@ func (m *Manager) speakerPlayMedia(speakerName, mediaContentID, mediaContentType
 // speakerSetShuffle enables or disables shuffle mode on a speaker.
 // Routes to SoCo-CLI for direct UPnP control when available.
 func (m *Manager) speakerSetShuffle(speakerName string, enabled bool) error {
+	if m.skipHandsOff(speakerName, "shuffle") {
+		return nil
+	}
 	if m.socoClient != nil {
 		return m.socoClient.SetShuffle(speakerName, enabled)
 	}
@@ -174,6 +249,9 @@ func (m *Manager) speakerSetShuffle(speakerName string, enabled bool) error {
 // speakerSetRepeat sets the repeat mode on a speaker ("all", "one", "off").
 // Routes to SoCo-CLI for direct UPnP control when available.
 func (m *Manager) speakerSetRepeat(speakerName string, mode string) error {
+	if m.skipHandsOff(speakerName, "repeat") {
+		return nil
+	}
 	if m.socoClient != nil {
 		return m.socoClient.SetRepeat(speakerName, mode)
 	}

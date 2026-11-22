@@ -368,6 +368,8 @@ It uses the same mute and exclude rules as Primary Bed.
 
 6. **Verified sleep handoff**: When `isMasterAsleep` becomes true, non-bedroom speakers leave the `sleep-prep` group with Pantry removed last. The promoted Primary Bed coordinator must report `playing` before the `sleep` transition completes. If it is idle or temporarily unavailable, music sends a targeted play command and verifies recovery without replacing the rain queue or restarting a healthy speaker.
 
+7. **Soundbar hands-off during TV playback**: While `isTVPlaying=true`, the music plugin sends no command to the Soundbar: no group, ungroup, volume, mute, or playback. It is excluded from the zone entirely and joins music at the next zone start once the TV stops. This is enforced by a top-level `hands_off` rule in `music_config.yaml`, which is checked in every speaker command path. See [MULTI_ZONE_MUSIC.md](../architecture/MULTI_ZONE_MUSIC.md) for the config schema.
+
 ### Timeline Example
 
 ```
