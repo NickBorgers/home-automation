@@ -320,7 +320,7 @@ func TestScenario_Environmental_WaterLeakDetection(t *testing.T) {
 
 	foundWaterLeakNotification := false
 	for _, call := range calls {
-		if call.Title == "Water Leak Detected" {
+		if call.Title == "Water leak" {
 			foundWaterLeakNotification = true
 			assert.Equal(t, ntfy.PriorityUrgent, call.Priority,
 				"Water leak notification should be urgent priority")
@@ -375,7 +375,7 @@ func TestScenario_Environmental_LeakSensorLowBatteryIsNotALeak(t *testing.T) {
 	t.Log("THEN: no water leak is reported")
 	assert.Equal(t, 0, env.environmental.GetActiveWaterLeakCount())
 	for _, call := range env.mockAlerter.Calls() {
-		assert.NotEqual(t, "Water Leak Detected", call.Title, "Low battery must not announce a water leak")
+		assert.NotEqual(t, "Water leak", call.Title, "Low battery must not announce a water leak")
 	}
 
 	// AND: the real moisture entity still triggers a leak

@@ -1660,8 +1660,8 @@ func TestEnvironmentalManager_WaterLeak_Detection(t *testing.T) {
 	if notification == nil {
 		t.Fatal("Expected to find a notification")
 	}
-	if notification.Title != "Water Leak Detected" {
-		t.Errorf("Expected notification title 'Water Leak Detected', got '%s'", notification.Title)
+	if notification.Title != "Water leak" {
+		t.Errorf("Expected notification title 'Water leak', got '%s'", notification.Title)
 	}
 	if notification.Priority != ntfy.PriorityUrgent {
 		t.Errorf("Expected urgent priority for water leak, got %d", notification.Priority)
@@ -2602,5 +2602,35 @@ func TestEnvironmentalManager_HumidityAlert_HasSpeechWithoutSensorList(t *testin
 	// Detailed Body still contains the sensor breakdown for ntfy push
 	if !strings.Contains(notification.Body, "Indoor Humidity 1") {
 		t.Errorf("Body should retain sensor detail for push notification, got %q", notification.Body)
+	}
+}
+
+func TestWaterLeakLocation(t *testing.T) {
+	tests := []struct {
+		name   string
+		sensor WaterLeakSensor
+		want   string
+	}{
+		{"device name, water leak sensor suffix", WaterLeakSensor{DeviceName: "Example Sink Water Leak Sensor"}, "Example Sink"},
+		{"device name, leak sensor suffix", WaterLeakSensor{DeviceName: "Example Room Leak Sensor"}, "Example Room"},
+		{"device name, water leak suffix", WaterLeakSensor{DeviceName: "Example Tub water leak"}, "Example Tub"},
+		{"device name, sensor suffix", WaterLeakSensor{DeviceName: "Example Pump Sensor"}, "Example Pump"},
+		{"device name, case-insensitive", WaterLeakSensor{DeviceName: "Example Sink WATER LEAK SENSOR"}, "Example Sink"},
+		{"device name, no suffix", WaterLeakSensor{DeviceName: "Example Basement"}, "Example Basement"},
+		{"device name wins over friendly name", WaterLeakSensor{
+			DeviceName: "Example Sink Water Leak Sensor", FriendlyName: "Other Name Water leak detected"}, "Example Sink"},
+		{"friendly name fallback", WaterLeakSensor{
+			FriendlyName: "Example Sink Water Leak Sensor Water leak detected"}, "Example Sink"},
+		{"friendly name without detected suffix", WaterLeakSensor{FriendlyName: "Example Tub Leak Sensor"}, "Example Tub"},
+		{"entity ID last resort", WaterLeakSensor{
+			EntityID: "binary_sensor.example_leak", FriendlyName: "binary_sensor.example_leak"}, "binary_sensor.example_leak"},
+		{"all empty uses entity ID", WaterLeakSensor{EntityID: "binary_sensor.example_leak"}, "binary_sensor.example_leak"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := waterLeakLocation(&tc.sensor); got != tc.want {
+				t.Errorf("waterLeakLocation() = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
