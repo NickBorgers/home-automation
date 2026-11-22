@@ -509,8 +509,7 @@ func TestSchedulerPausesWhenWayHomeIsBlocked(t *testing.T) {
 
 	clearAreas(e.hub)
 	e.s.TickForTest(true)
-	assert.Equal(t, "/api/v2/robot/capabilities/BasicControlCapability map[action:home]", e.commandPaths()[1],
-		"the way cleared: go home, do not resume")
+	assert.Equal(t, cmdStart, e.commandPaths()[1], "the way cleared within the wait: resume, do not go home")
 	assert.False(t, e.sched().Run.Paused)
 }
 

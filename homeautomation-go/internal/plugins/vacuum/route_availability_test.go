@@ -13,6 +13,7 @@ import (
 const (
 	cmdHome  = "/api/v2/robot/capabilities/BasicControlCapability map[action:home]"
 	cmdPause = "/api/v2/robot/capabilities/BasicControlCapability map[action:pause]"
+	cmdStart = "/api/v2/robot/capabilities/BasicControlCapability map[action:start]"
 )
 
 // After an abort the robot heads home. If someone then steps into its way home, it pauses, and it goes home
@@ -94,7 +95,8 @@ func TestSchedulerLiveCheckBlocksWholeOpenRegion(t *testing.T) {
 
 	clearAreas(e.hub)
 	e.s.TickForTest(true)
-	assert.Equal(t, []string{cmdPause, cmdHome}, e.commandPaths(), "home once the open region is clear")
+	assert.Equal(t, []string{cmdPause, cmdStart}, e.commandPaths(), "the open region cleared in time: resume")
+	assert.False(t, e.sched().Run.Aborted)
 }
 
 // A person who walks into the far end of an open region makes its near end unavailable to clean, even though
@@ -145,4 +147,33 @@ func TestSchedulerUsesLastKnownRoomWhenPositionIsLost(t *testing.T) {
 	clearAreas(e.hub, "pantry")
 	e.s.TickForTest(true)
 	assert.Equal(t, []string{cmdPause}, e.commandPaths(), "last seen in the kitchen: the way home crosses the pantry")
+}
+
+// A way that stays blocked past route_blocked_wait ends the wait: the run aborts, and the robot goes home
+// once the way clears.
+func TestSchedulerBlockedWaitTimesOutIntoAbort(t *testing.T) {
+	e := newSchedEnv(t, ModeActive, func(cfg *SchedulerConfig, _ *housemap.Map) {
+		cfg.RouteBlockedWaitRaw = "2m"
+		cfg.applyDefaultsAndValidate()
+	})
+	e.start()
+	e.startRun("kitchen", "lounge")
+	e.moveTo("lounge", 97)
+	e.advance(30 * time.Second)
+	e.robot.ClearCommands()
+
+	clearAreas(e.hub, "pantry")
+	e.s.TickForTest(true)
+	require.Equal(t, []string{cmdPause}, e.commandPaths())
+	assert.False(t, e.sched().Run.Aborted, "waiting, not aborted")
+
+	e.advance(time.Minute)
+	assert.False(t, e.sched().Run.Aborted, "within the wait")
+	e.advance(90 * time.Second)
+	assert.True(t, e.sched().Run.Aborted, "past the wait")
+	assert.Equal(t, []string{cmdPause}, e.commandPaths(), "still blocked: stay put")
+
+	clearAreas(e.hub)
+	e.s.TickForTest(true)
+	assert.Equal(t, []string{cmdPause, cmdHome}, e.commandPaths())
 }
