@@ -298,23 +298,28 @@ func TestLuxRooms_MudTurnsOffOnItsOwnWithoutAnArea(t *testing.T) {
 	assert.NotContains(t, calls[0].Data, "area_id")
 }
 
-// Kitchen presence brightens only the Kitchen and the Pantry. The Living room, the Mud room and the other
-// lux rooms keep their curve even while the Kitchen is occupied. Presence never dims a room below its curve.
-func TestProductionConfig_KitchenPresenceBrightensOnlyKitchenAndPantry(t *testing.T) {
+// Each room's presence brightens only that room. A wall separates the Kitchen from the Pantry, so Kitchen
+// presence leaves the Pantry on its curve, and Pantry presence leaves the Kitchen on its curve. The Living
+// room, the Mud room and the other lux rooms keep their curve. Presence never dims a room below its curve.
+func TestProductionConfig_PresenceBrightensOnlyItsOwnRoom(t *testing.T) {
 	t.Parallel()
-	brightened := map[string]bool{"Kitchen": true, "Pantry": true}
 	cases := []struct {
 		name     string
 		at       time.Time
 		dayPhase string
+		variable string
 		occupied bool
-		want     func(room string) bool
+		want     string // the one room brightened, or "" for none
 	}{
-		{"night occupied", at(22, 30), "night", true, func(r string) bool { return brightened[r] }},
-		{"winddown occupied", at(21, 30), "winddown", true, func(r string) bool { return brightened[r] }},
-		{"dusk occupied", at(19, 45), "dusk", true, func(r string) bool { return brightened[r] }},
-		{"night empty", at(22, 30), "night", false, func(string) bool { return false }},
-		{"day occupied", at(12, 0), "day", true, func(string) bool { return false }},
+		{"kitchen night occupied", at(22, 30), "night", "isKitchenOccupied", true, "Kitchen"},
+		{"kitchen winddown occupied", at(21, 30), "winddown", "isKitchenOccupied", true, "Kitchen"},
+		{"kitchen dusk occupied", at(19, 45), "dusk", "isKitchenOccupied", true, "Kitchen"},
+		{"kitchen night empty", at(22, 30), "night", "isKitchenOccupied", false, ""},
+		{"kitchen day occupied", at(12, 0), "day", "isKitchenOccupied", true, ""},
+		{"pantry night occupied", at(22, 30), "night", "isPantryOccupied", true, "Pantry"},
+		{"pantry dusk occupied", at(19, 45), "dusk", "isPantryOccupied", true, "Pantry"},
+		{"pantry night empty", at(22, 30), "night", "isPantryOccupied", false, ""},
+		{"pantry day occupied", at(12, 0), "day", "isPantryOccupied", true, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -322,7 +327,9 @@ func TestProductionConfig_KitchenPresenceBrightensOnlyKitchenAndPantry(t *testin
 			clk.Set(tc.at)
 			env.MockHA.SetState(m.config.LuxCurve.OutdoorSensor, "0", nil)
 			require.NoError(t, env.StateMgr.SetString("dayPhase", tc.dayPhase))
-			require.NoError(t, env.StateMgr.SetBool("isKitchenOccupied", tc.occupied))
+			require.NoError(t, env.StateMgr.SetBool("isKitchenOccupied", false))
+			require.NoError(t, env.StateMgr.SetBool("isPantryOccupied", false))
+			require.NoError(t, env.StateMgr.SetBool(tc.variable, tc.occupied))
 			for i := range m.config.Rooms {
 				room := &m.config.Rooms[i]
 				if room.LuxControl == nil {
@@ -331,12 +338,12 @@ func TestProductionConfig_KitchenPresenceBrightensOnlyKitchenAndPantry(t *testin
 				m.luxEvaluate(room, "test")
 				st := m.GetShadowState().Outputs.LuxControl[room.HueGroup]
 				want := "lux_curve"
-				if tc.want(room.HueGroup) {
+				if room.HueGroup == tc.want {
 					want = "presence_override"
 				}
 				assert.Equal(t, want, st.TargetSource, room.HueGroup)
 			}
-			if tc.name == "night occupied" {
+			if tc.name == "kitchen night occupied" {
 				// The night curve puts the Kitchen cans at about 8%. 200% of that is 17%.
 				assert.InDelta(t, 17, m.GetShadowState().Outputs.LuxControl["Kitchen"].GoalBrightnessPct, 1)
 			}
