@@ -49,7 +49,7 @@ func (s *Scheduler) checkStranded(now time.Time, st *valetudo.State) {
 			"not sent home", st.Status, shortDuration(stood)))
 		return
 	}
-	restr := ComputeRestrictions(s.graph, s.blockedAreas(), s.sleeperRooms())
+	restr := ComputeRestrictions(s.graph, s.blockedAreas(), s.sleeperRooms(), s.quietFor())
 	crossed, ok := LegCrosses(s.graph, at, s.dockRoom, restr.NoEnter)
 	if !ok || crossed != "" {
 		msg := fmt.Sprintf("robot is %s in %s for %s with no run; ", st.Status, at, shortDuration(stood))

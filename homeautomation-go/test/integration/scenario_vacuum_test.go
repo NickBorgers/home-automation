@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -161,22 +162,31 @@ func setupVacuumScenarioWith(t *testing.T, cleanedAgo map[string]time.Duration, 
 		sched: s, shadow: tracker, logs: logs}
 }
 
-func loadVacuumSchedulerConfig(t *testing.T, url, extra string) *vacuum.SchedulerConfig {
-	t.Helper()
-	text := `vacuum:
-  scheduler:
-    mode: active
-    valetudo_url: "` + url + `"
-    sleepers:
-      - {state: isMasterAsleep, rooms: [bedroom]}
-    rooms:
+// vacuumRoomsConfig is the scenario's rooms: section, unless the extra config starts with its own.
+const vacuumRoomsConfig = `    rooms:
       lounge:  {segment_id: "1", full: 24h}
       kitchen: {segment_id: "2", full: 24h}
       study:   {segment_id: "3", full: 24h}
       hall:    {segment_id: "4", full: 24h}
       bedroom: {segment_id: "5", full: 24h}
       porch:   {segment_id: "6", full: 24h}
-` + extra
+`
+
+// loadVacuumSchedulerConfig loads the scenario config. Extra config that starts with "    rooms:" replaces
+// the default rooms.
+func loadVacuumSchedulerConfig(t *testing.T, url, extra string) *vacuum.SchedulerConfig {
+	t.Helper()
+	rooms := vacuumRoomsConfig
+	if strings.HasPrefix(extra, "    rooms:") {
+		rooms = ""
+	}
+	text := `vacuum:
+  scheduler:
+    mode: active
+    valetudo_url: "` + url + `"
+    sleepers:
+      - {state: isMasterAsleep, rooms: [bedroom]}
+` + rooms + extra
 	path := filepath.Join(t.TempDir(), "vacuum_config.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(text), 0o600))
 	cfg, err := vacuum.LoadConfig(path)

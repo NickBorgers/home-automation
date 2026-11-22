@@ -395,7 +395,7 @@ func TestOrderTourDropsRoomWithBlockedWayHome(t *testing.T) {
 
 func TestComputeRestrictions(t *testing.T) {
 	g := loadTestMap(t).Graph()
-	r := ComputeRestrictions(g, map[string]bool{"suite": true}, []string{"office"})
+	r := ComputeRestrictions(g, map[string]bool{"suite": true}, []string{"office"}, nil)
 	assert.Equal(t, map[string]string{
 		"bed":    "area suite is occupied or unknown",
 		"bath":   "area suite is occupied or unknown",
@@ -416,7 +416,7 @@ func TestComputeRestrictionsOpenRegion(t *testing.T) {
 	g := loadTestMap(t).Graph()
 
 	t.Run("a person in the strip blocks both rooms it opens onto", func(t *testing.T) {
-		r := ComputeRestrictions(g, map[string]bool{"strip": true}, nil)
+		r := ComputeRestrictions(g, map[string]bool{"strip": true}, nil, nil)
 		want := map[string]string{
 			"strip":  "area strip is occupied or unknown",
 			"family": "open to strip: area strip is occupied or unknown",
@@ -427,7 +427,7 @@ func TestComputeRestrictionsOpenRegion(t *testing.T) {
 	})
 
 	t.Run("the block spreads along a chain of openings", func(t *testing.T) {
-		r := ComputeRestrictions(g, map[string]bool{"family": true}, nil)
+		r := ComputeRestrictions(g, map[string]bool{"family": true}, nil, nil)
 		assert.Equal(t, "open to family: area family is occupied or unknown", r.NoEnter["den"],
 			"den is two openings from the family")
 		assert.Equal(t, "open to family: area family is occupied or unknown", r.NoClean["den"])
@@ -435,12 +435,12 @@ func TestComputeRestrictionsOpenRegion(t *testing.T) {
 	})
 
 	t.Run("doors do not spread the block", func(t *testing.T) {
-		r := ComputeRestrictions(g, map[string]bool{"family": true}, nil)
+		r := ComputeRestrictions(g, map[string]bool{"family": true}, nil, nil)
 		for _, room := range []string{"kitchen", "study", "pantry", "mud"} {
 			assert.NotContains(t, r.NoEnter, room, room)
 			assert.NotContains(t, r.NoClean, room, room)
 		}
-		r = ComputeRestrictions(g, map[string]bool{"kitchen": true, "study": true}, nil)
+		r = ComputeRestrictions(g, map[string]bool{"kitchen": true, "study": true}, nil, nil)
 		for _, room := range []string{"family", "strip", "den"} {
 			assert.NotContains(t, r.NoEnter, room, "a person behind a door does not block %s", room)
 			assert.NotContains(t, r.NoClean, room, room)
@@ -448,7 +448,7 @@ func TestComputeRestrictionsOpenRegion(t *testing.T) {
 	})
 
 	t.Run("a room's own blocked area wins as the reason", func(t *testing.T) {
-		r := ComputeRestrictions(g, map[string]bool{"family": true, "den": true}, nil)
+		r := ComputeRestrictions(g, map[string]bool{"family": true, "den": true}, nil, nil)
 		assert.Equal(t, "area family is occupied or unknown", r.NoEnter["family"])
 		assert.Equal(t, "area den is occupied or unknown", r.NoEnter["den"])
 		assert.Equal(t, "open to den: area den is occupied or unknown", r.NoEnter["strip"],
@@ -456,7 +456,7 @@ func TestComputeRestrictionsOpenRegion(t *testing.T) {
 	})
 
 	t.Run("the sleeper rule does not spread over openings", func(t *testing.T) {
-		r := ComputeRestrictions(g, nil, []string{"study"})
+		r := ComputeRestrictions(g, nil, []string{"study"}, nil)
 		assert.Equal(t, map[string]string{"study": "sleeper room"}, r.NoEnter)
 		assert.Equal(t, "next to sleeper room study", r.NoClean["den"])
 		assert.NotContains(t, r.NoClean, "strip")
