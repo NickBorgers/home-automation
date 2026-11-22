@@ -112,3 +112,75 @@ func TestScenario_LuxLateGroupReportDoesNotHoldButManualChangeDoes(t *testing.T)
 	}, 2*time.Second, 50*time.Millisecond, "a person's change must hold the room")
 	require.True(t, holdHelperTurnedOn())
 }
+
+// User story: "The strip follows the room's fades. I did not touch it, so the system must keep
+// following the curve."
+//
+// Invariant: a follower strip report within the brightness range of overlapping running fades
+// does not hold the room, even when it is behind the modeled path.
+func TestScenario_LuxFollowerLaggingOverlappingFadesDoesNotHold(t *testing.T) {
+	t.Log("GIVEN: the plugin sends overlapping fades for the cans and their follower strip")
+	server, client, stateManager, cleanup := setupTest(t)
+	defer cleanup()
+
+	t0 := time.Date(2026, 11, 22, 20, 0, 0, 0, time.UTC)
+	mockClock := clock.NewMockClock(t0)
+	config := &lighting.HueConfig{
+		LuxCurve: &lighting.LuxCurveConfig{
+			Points: []lighting.LuxCurvePoint{
+				{Anchor: "test.start", Lux: 38, Kelvin: 3000},
+				{Anchor: "test.end", Lux: 14, Kelvin: 3000},
+			},
+			OutdoorSensor: "sensor.outdoor_lux",
+			TickSeconds:   60,
+		},
+		Rooms: []lighting.RoomConfig{{
+			HueGroup: "Living Room",
+			Conditions: []lighting.LightingCondition{{
+				Action: "on", Variable: "isAnyoneHome", Value: true,
+			}},
+			LuxControl: &lighting.LuxControlConfig{
+				Mode:           lighting.LuxModeActive,
+				Cans:           "light.living_cans",
+				Calibrated:     true,
+				Calibration:    []lighting.CalibrationPoint{{BrightnessPct: 1, Lux: 1}, {BrightnessPct: 100, Lux: 100}},
+				FollowerLights: []lighting.LuxFollower{{Entity: "light.living_strip", Gain: 1}},
+			},
+		}},
+	}
+
+	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
+	require.NoError(t, stateManager.SetString("dayPhase", "evening"))
+	server.SetState("sensor.outdoor_lux", "0", nil)
+	server.SetState("input_boolean.lux_hold_living_room", "off", nil)
+	server.SetState("light.living_cans", "on", map[string]interface{}{"brightness": 161.0, "color_temp_kelvin": 3000.0})
+	server.SetState("light.living_strip", "on", map[string]interface{}{"brightness": 161.0})
+
+	manager := lighting.NewManager(context.Background(), client, stateManager, config, testlogger.New(), false, nil)
+	manager.SetClock(mockClock)
+	manager.SetAnchorResolver(func(anchor string, _ time.Time) (time.Time, bool) {
+		anchors := map[string]time.Time{"test.start": t0, "test.end": t0.Add(34 * time.Second)}
+		at, ok := anchors[anchor]
+		return at, ok
+	})
+	require.NoError(t, manager.Start())
+	defer manager.Stop()
+	require.Eventually(t, func() bool {
+		return len(filterServiceCalls(server.GetServiceCalls(), "light", "turn_on")) >= 2
+	}, time.Second, 10*time.Millisecond, "the first cans and strip fade is sent")
+
+	mockClock.AdvanceAndProcess(34 * time.Second)
+	require.NoError(t, stateManager.SetString("dayPhase", "winddown"))
+	require.Eventually(t, func() bool {
+		return len(filterServiceCalls(server.GetServiceCalls(), "light", "turn_on")) >= 4
+	}, time.Second, 10*time.Millisecond, "the second cans and strip fade is sent before the first ends")
+
+	t.Log("WHEN: 44 seconds into the second fade, the strip reports 28%, behind its modeled path")
+	mockClock.AdvanceAndProcess(44 * time.Second)
+	server.SetState("light.living_strip", "on", map[string]interface{}{"brightness": 71.0})
+	client.WaitForHandlers()
+
+	t.Log("THEN: the room is not held because the strip is still within the running fades' range")
+	mockClock.AdvanceAndProcess(time.Minute)
+	require.False(t, manager.GetShadowState().Outputs.LuxControl["Living Room"].Held)
+}
