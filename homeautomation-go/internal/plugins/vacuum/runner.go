@@ -234,6 +234,17 @@ func (s *Scheduler) configure() string {
 			}
 		}
 	}
+	areas := map[string]bool{}
+	for _, r := range s.graph.Rooms() {
+		areas[s.graph.Area(r)] = true
+	}
+	for _, room := range s.cfg.RoomNames() {
+		for _, a := range s.cfg.Rooms[room].QuietFor {
+			if !areas[a] {
+				return fmt.Sprintf("scheduler.rooms.%s.quiet_for: area %q is not an area in the house map", room, a)
+			}
+		}
+	}
 	for _, k := range s.cfg.itemKeys() {
 		s.dirtyKeys[dirtyEntity(k)] = k
 	}
@@ -469,6 +480,17 @@ func (s *Scheduler) segments() map[string]string {
 	return out
 }
 
+// quietFor maps each configured room to the areas within earshot of it.
+func (s *Scheduler) quietFor() map[string][]string {
+	out := map[string][]string{}
+	for name, r := range s.cfg.Rooms {
+		if len(r.QuietFor) > 0 {
+			out[name] = r.QuietFor
+		}
+	}
+	return out
+}
+
 // replan builds a plan and runs the start gate: the same plan must hold for StableFor before it starts.
 func (s *Scheduler) replan(now time.Time) {
 	st := s.robotState
@@ -478,6 +500,7 @@ func (s *Scheduler) replan(now time.Time) {
 		Segments:     s.segments(),
 		BlockedAreas: s.blockedAreas(),
 		SleeperRooms: s.sleeperRooms(),
+		QuietFor:     s.quietFor(),
 		Hold:         s.holdReason(),
 		Battery:      st.Battery,
 		HasBattery:   st.HasBattery,
@@ -1244,7 +1267,7 @@ func (s *Scheduler) logRoomChange(r *run, st *valetudo.State, room string) {
 // while it returns at the end of the run.
 func (s *Scheduler) checkRouteAvailability(st *valetudo.State, room string, posOK bool) {
 	r := s.run
-	restr := ComputeRestrictions(s.graph, s.blockedAreas(), s.sleeperRooms())
+	restr := ComputeRestrictions(s.graph, s.blockedAreas(), s.sleeperRooms(), s.quietFor())
 
 	// Where the robot is. Without a trusted position, assume the last room seen, else the dock.
 	at := room

@@ -41,6 +41,8 @@ type PlanInput struct {
 	BlockedAreas map[string]bool
 	// SleeperRooms are the rooms of people who are asleep now.
 	SleeperRooms []string
+	// QuietFor maps a room to the areas within earshot of it (RoomConfig.QuietFor).
+	QuietFor map[string][]string
 	// Hold says why no new run may start now, such as "held: isTVPlaying is true". "" when nothing holds.
 	Hold string
 
@@ -103,8 +105,10 @@ type Restrictions struct {
 // joined by open passages are one room to a person, so a blocked room blocks every room of its open region
 // too (see housemap.Graph.OpenRegion); doors do not spread the block. A sleeper's room holds a person, so it
 // must not be entered either, whatever room presence says. Every room one door away from a sleeper must not
-// be cleaned, but may be driven through (rule 2).
-func ComputeRestrictions(g RoomGraph, blockedAreas map[string]bool, sleeperRooms []string) Restrictions {
+// be cleaned, but may be driven through (rule 2). quietFor maps a room to the areas within earshot of it:
+// while any of them is blocked, the room must not be cleaned, but may be driven through.
+func ComputeRestrictions(g RoomGraph, blockedAreas map[string]bool, sleeperRooms []string,
+	quietFor map[string][]string) Restrictions {
 	r := Restrictions{NoEnter: map[string]string{}, NoClean: map[string]string{}}
 	var blocked []string
 	for _, room := range g.Rooms() {
@@ -118,6 +122,14 @@ func ComputeRestrictions(g RoomGraph, blockedAreas map[string]bool, sleeperRooms
 		for _, room := range g.OpenRegion(b) {
 			if _, ok := r.NoEnter[room]; !ok {
 				r.NoEnter[room] = "open to " + b + ": area " + g.Area(b) + " is occupied or unknown"
+			}
+		}
+	}
+	for _, room := range sortedKeys(quietFor) {
+		for _, a := range quietFor[room] {
+			if blockedAreas[a] {
+				r.NoClean[room] = "within earshot of area " + a + ", which is occupied or unknown"
+				break
 			}
 		}
 	}
@@ -161,7 +173,7 @@ func LegCrosses(g RoomGraph, from, to string, noEnter map[string]string) (crosse
 //
 //  1. No run while a hold_while condition holds, below the start minimum, or when the robot is not docked.
 //  2. Rooms in blocked areas, and rooms open to them, are not entered; sleeper rooms and their neighbours
-//     are not cleaned.
+//     are not cleaned, nor are rooms within earshot (quiet_for) of a blocked area.
 //  3. Candidates are items that may be cleaned and whose shortest way from the dock enters no blocked room.
 //  4. The best-scoring candidate sets the run's treatment. A full run also clears the room's vacuum taint.
 //  5. Candidates are packed in score order while trip plus room costs fit in battery minus floor.
@@ -170,7 +182,7 @@ func LegCrosses(g RoomGraph, from, to string, noEnter map[string]string) (crosse
 func BuildPlan(in PlanInput) Plan {
 	plan := Plan{Budget: float64(in.Battery) - in.Floor}
 
-	restr := ComputeRestrictions(in.Graph, in.BlockedAreas, in.SleeperRooms)
+	restr := ComputeRestrictions(in.Graph, in.BlockedAreas, in.SleeperRooms, in.QuietFor)
 	plan.NoEnter = sortedKeys(restr.NoEnter)
 	plan.NoClean = sortedKeys(restr.NoClean)
 

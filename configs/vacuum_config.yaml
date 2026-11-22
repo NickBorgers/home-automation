@@ -157,6 +157,12 @@ vacuum:
     # room is dirty again. vacuum adds a vacuum-only taint with its own
     # interval. Use Go durations: 168h is a week. Rooms not listed are only
     # driven through.
+    #
+    # quiet_for lists house-map areas within earshot of a room, such as a
+    # living area behind a door. While any of them is occupied or unknown,
+    # the room is not cleaned, but it may still be driven through. An area
+    # name not in the house map is a config error. For example:
+    #   pantry: {segment_id: "6", full: "72h", quiet_for: ["lounge"]}
     rooms:
       kitchen: {segment_id: "1", full: "48h", vacuum: "12h"}
       lounge: {segment_id: "2", full: "84h"}

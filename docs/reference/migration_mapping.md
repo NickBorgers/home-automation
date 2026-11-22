@@ -48,6 +48,7 @@ All 46 state variables currently implemented in the Go application, organized by
 | isExpectingSomeone | input_boolean.expecting_someone | Expecting a visitor | - |
 | isNickOfficeOccupied | input_boolean.nick_office_occupied | Nick's office occupancy sensor | - |
 | isKitchenOccupied | input_boolean.kitchen_occupied | Logical kitchen occupancy emitted by the room-presence plugin from Frigate camera events | ComputedOutput |
+| isPantryOccupied | input_boolean.pantry_occupied | Logical pantry occupancy emitted by the room-presence plugin | ComputedOutput |
 | isPrimaryBedroomDoorOpen | input_boolean.primary_bedroom_door_open | Primary bedroom door state | - |
 | isNickNearHome | input_boolean.nick_near_home | Nick proximity geofence trigger | - |
 | isCarolineNearHome | input_boolean.caroline_near_home | Caroline proximity geofence trigger | - |
@@ -164,7 +165,8 @@ These variables are only referenced in disabled Node Red flows and will NOT be m
 **Behavior**: Logical room-presence variables consumed by downstream plugins
 
 - **isNickOfficeOccupied**: Used by lighting plugin to control N Office lights (2-second transition)
-- **isKitchenOccupied**: Emitted by the room-presence plugin from Frigate camera person events. It raises the Kitchen and Pantry lux target in the evening and at night (`lux_control.presence_override` in `hue_config.yaml`); Kitchen on/off follows `isAnyoneHomeAndAwake`. The compatibility helper name does not identify a physical radar sensor.
+- **isKitchenOccupied**: Emitted by the room-presence plugin from Frigate camera person events. It raises the Kitchen lux target in the evening and at night (`lux_control.presence_override` in `hue_config.yaml`); Kitchen on/off follows `isAnyoneHomeAndAwake`. The compatibility helper name does not identify a physical radar sensor.
+- **isPantryOccupied**: Emitted by the room-presence plugin. It raises the Pantry lux target the same way. The Pantry and the Kitchen are separate rooms, so each uses its own variable.
 - **Purpose**: Provide stable logical occupancy to downstream automation
 - **Configuration**: See `configs/hue_config.yaml` for room-specific lighting rules
 
