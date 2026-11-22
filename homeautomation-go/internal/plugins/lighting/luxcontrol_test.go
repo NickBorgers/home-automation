@@ -98,7 +98,8 @@ func canReport(state string, brightness255 float64, kelvin float64) *ha.State {
 }
 
 // changeByHand is a person's change to the cans: Home Assistant holds the new state, its report
-// arrives, and the plugin's confirmation read runs.
+// arrives, and the plugin's confirmation reads run until the check is decided. During a fade the
+// check may wait for the fade to end.
 func (f *luxFixture) changeByHand(s *ha.State) {
 	changeCansByHand(f.manager, f.env, f.clock, f.room, s)
 }
@@ -107,7 +108,15 @@ func (f *luxFixture) changeByHand(s *ha.State) {
 func changeCansByHand(m *Manager, env *testutil.Env, clk *clock.MockClock, room *RoomConfig, s *ha.State) {
 	env.MockHA.SetState(room.LuxControl.Cans, s.State, s.Attributes)
 	m.handleCansChange(room, s)
-	clk.Advance(luxHoldConfirmDelay)
+	for i := 0; i < 30; i++ { // up to 150 s: the longest fade plus the settle margin and re-reads
+		clk.Advance(luxHoldConfirmDelay)
+		m.luxMu.Lock()
+		pending := m.luxRoom(room.HueGroup).checking != nil
+		m.luxMu.Unlock()
+		if !pending {
+			return
+		}
+	}
 }
 
 func TestStartLux_ConfiguresOutdoorSmoothingWindow(t *testing.T) {
