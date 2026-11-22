@@ -50,7 +50,7 @@ func TestScenario_LuxOverlappingTransitionsDoNotCreateFalseManualHold(t *testing
 	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
 	server.SetState("sensor.outdoor_lux", "0", nil)
 	server.SetState("light.living_cans", "on", map[string]interface{}{
-		"brightness":        153.0, // 60%, so the first tick sends the 62% target.
+		"brightness":        158.0, // 62%, the target, so only the color changes and fades keep 60 s.
 		"color_temp_kelvin": 4000.0,
 	})
 
