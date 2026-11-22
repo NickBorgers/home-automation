@@ -870,6 +870,7 @@ p.mqttSub = mqttSub
 // In Stop:
 if p.mqttSub != nil {
     p.mqttSub.Unsubscribe()
+    p.mqttSub = nil
 }
 ```
 
