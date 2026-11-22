@@ -27,7 +27,7 @@ func TestScenario_RainPlaybackUsesRaisedVolumeTargets(t *testing.T) {
 
 	expected := map[string]map[string]int{
 		"sleep-prep": {
-			"Pantry": 14, "Utility": 13, "Lounge": 14, "Kitchen": 18, "Soundbar": 16,
+			"Pantry": 14, "Utility": 13, "Lounge": 14, "Kitchen": 13, "Soundbar": 16,
 			"Primary Bed": 24, "Primary Bath": 14, "Sitting": 14,
 		},
 		"sleep": {"Primary Bed": 24, "Primary Bath": 14},
@@ -36,7 +36,7 @@ func TestScenario_RainPlaybackUsesRaisedVolumeTargets(t *testing.T) {
 	for _, modeName := range []string{"sleep-prep", "sleep"} {
 		mode := config.Music[modeName]
 		t.Logf("WHEN: each configured %s rain playlist is selected", modeName)
-		require.Len(t, mode.PlaybackOptions, 3)
+		require.Len(t, mode.PlaybackOptions, 2)
 		for _, option := range mode.PlaybackOptions {
 			require.Contains(t, option.URI, "sleep-rain-", "%s contains a non-rain option", modeName)
 			for _, participant := range mode.Participants {

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/shadowstate"
 
@@ -40,6 +41,13 @@ const (
 	// small: a fade never moves backward, so a move against it is a person.
 	manualReverseBrightnessTolerance = 1.5
 	manualReverseKelvinTolerance     = 50
+	// luxHoldConfirmDelay is how long after an off-path brightness or color report the plugin reads
+	// the cans again before it holds the room. A light group's report can arrive late or out of
+	// order while overlapping fades settle. A person's change stays off the fade path.
+	luxHoldConfirmDelay = 5 * time.Second
+	// luxHoldConfirmReads is the most re-reads made after the fade has ended while the cans are
+	// still moving. When the last one is still off the fade path, the room is held.
+	luxHoldConfirmReads = 4
 )
 
 // luxCommand is the last command sent (or, in log_only/READ_ONLY mode, that would be sent) to a room's cans.
@@ -95,6 +103,28 @@ type luxRoomState struct {
 	held       bool
 	heldSince  time.Time
 	heldReason string
+	// checking is set while an off-path brightness or color report waits for a fresh read of the
+	// cans (confirmLuxHold). The loop sends nothing meanwhile, so a person's change is kept.
+	checking *luxHoldCheck
+}
+
+// luxHoldCheck is a pending confirmation of a possible manual change to the cans.
+type luxHoldCheck struct {
+	timer  clock.Timer
+	reason string    // why the first report looked manual
+	last   *ha.State // the most recent report or read
+	reads  int       // fresh reads made after the fade ended
+	// skipped is set when an evaluation (a tick, a presence or condition change) was skipped
+	// during the check. A check that clears runs it then, not at the next tick.
+	skipped bool
+}
+
+// cancelHoldCheck drops a pending confirmation. Caller must hold luxMu.
+func (st *luxRoomState) cancelHoldCheck() {
+	if st.checking != nil {
+		st.checking.timer.Stop()
+		st.checking = nil
+	}
 }
 
 // luxHoldHelper returns the Home Assistant input_boolean that stores a room's manual hold,
@@ -376,6 +406,10 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 	m.luxMu.Lock()
 	st := m.luxRoom(room.HueGroup)
 	rec.Held, rec.HeldSince, rec.HeldReason = st.held, st.heldSince, st.heldReason
+	checking := st.checking != nil
+	if checking {
+		st.checking.skipped = true // confirmLuxHold evaluates again if the check clears
+	}
 	m.luxMu.Unlock()
 
 	finish := func(decision string) {
@@ -461,6 +495,10 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 		finish("held: manual change, lights left alone" + note)
 		return
 	}
+	if checking {
+		finish("checking a possible manual change, lights left alone" + note)
+		return
+	}
 	if action, _ := m.evaluateConditions(room); action != "on" {
 		finish(fmt.Sprintf("room not on (conditions say %q)%s", action, note))
 		return
@@ -514,6 +552,18 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 		finish("no change: below minimum step" + note)
 		return
 	}
+
+	// Re-read under lock before sending: a handleCansChange between the first unlock and here
+	// may have started a hold check. Sending now would overwrite the person's change, and the
+	// confirming read would see our own command and clear the check without holding.
+	m.luxMu.Lock()
+	if st.checking != nil {
+		st.checking.skipped = true
+		m.luxMu.Unlock()
+		finish("checking a possible manual change, lights left alone" + note)
+		return
+	}
+	m.luxMu.Unlock()
 
 	if !luxActive(room) || m.readOnly {
 		m.luxMu.Lock()
@@ -616,10 +666,14 @@ func (m *Manager) sendLuxCommand(room *RoomConfig, cmd *luxCommand) error {
 	return m.haClient.CallService(m.ctx, "light", service, data)
 }
 
-// handleCansChange detects a manual change to the cans the moment the report arrives. No
-// window exists in which reports are ignored. During a fade, a report counts as manual when it
-// is not on the fade's path (manualChangeReason). A turn-on after a commanded off is
-// stabilized so the stale off transition cannot win.
+// handleCansChange checks every report from the cans the moment it arrives. While a
+// brightness-or-color hold check is running (st.checking != nil), subsequent reports for the same
+// room are dropped; only the first off-path report triggers the loop. During a fade, a report
+// counts as manual when it is not on the fade's path (manualChangeReason). A brightness or color
+// report off the path is confirmed by a fresh read before the room is held (confirmLuxHold),
+// because a light group's report can arrive late or out of order while fades settle. The loop
+// sends nothing while it waits. A turn-on or turn-off against the command holds at once. A
+// turn-on after a commanded off is stabilized so the stale off transition cannot win.
 func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 	if newState == nil || m.readOnly || !luxActive(room) {
 		return
@@ -632,27 +686,25 @@ func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 
 	m.luxMu.Lock()
 	st := m.luxRoom(room.HueGroup)
-	if st.held || st.cmd == nil {
+	if st.held || st.cmd == nil || st.checking != nil {
 		m.luxMu.Unlock()
 		return
 	}
 	cmd := st.cmd
 	contraryTurnOn := !cmd.on && newState.State == "on"
-	reason := manualChangeReason(cmd, newState, room.LuxControl.HasColorTemp(), now)
-	// Suppress a false manual-hold when a delayed bridge report from the previous
-	// fade arrives just after a new command is sent. The guard window is
-	// previous.transition + fadeReportLag, which is correct when the lux loop
-	// sends commands sequentially (new command arrives as the old one ends).
-	// A mid-transition command override would leave the window open for the
-	// remaining transition duration — today the lux loop never does this.
-	if reason != "" && st.previous != nil &&
-		now.Before(st.previous.at.Add(st.previous.transition+fadeReportLag)) &&
-		manualChangeReason(st.previous, newState, room.LuxControl.HasColorTemp(),
-			st.previous.at.Add(fadeReportLag)) == "" {
-		reason = ""
-	}
+	reason := cansChangeReason(room, st, newState, now)
 	if reason == "" {
 		m.luxMu.Unlock()
+		return
+	}
+	if cmd.on && newState.State == "on" {
+		// A brightness or color difference: confirm it with a fresh read before holding.
+		m.scheduleLuxHoldCheck(room, st, &luxHoldCheck{reason: reason, last: newState})
+		m.luxMu.Unlock()
+		m.logger.Info("Possible manual change; reading the cans again before holding",
+			zap.String("room", room.HueGroup),
+			zap.String("reason", reason),
+			zap.Duration("delay", luxHoldConfirmDelay))
 		return
 	}
 	st.held, st.heldSince, st.heldReason = true, now, reason
@@ -678,6 +730,96 @@ func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 			m.logger.Error("Failed to stabilize manual turn-on", zap.String("room", room.HueGroup), zap.Error(err))
 		}
 	}
+}
+
+// cansChangeReason is manualChangeReason for the cans, with the previous command's guard.
+// Caller must hold luxMu.
+func cansChangeReason(room *RoomConfig, st *luxRoomState, s *ha.State, now time.Time) string {
+	reason := manualChangeReason(st.cmd, s, room.LuxControl.HasColorTemp(), now)
+	// Suppress a false manual-hold when a delayed bridge report from the previous
+	// fade arrives just after a new command is sent. The guard window is
+	// previous.transition + fadeReportLag, which is correct when the lux loop
+	// sends commands sequentially (new command arrives as the old one ends).
+	// A mid-transition command override would leave the window open for the
+	// remaining transition duration — today the lux loop never does this.
+	if reason != "" && st.previous != nil &&
+		now.Before(st.previous.at.Add(st.previous.transition+fadeReportLag)) &&
+		manualChangeReason(st.previous, s, room.LuxControl.HasColorTemp(),
+			st.previous.at.Add(fadeReportLag)) == "" {
+		reason = ""
+	}
+	return reason
+}
+
+// scheduleLuxHoldCheck reads the cans again after luxHoldConfirmDelay. Caller must hold luxMu.
+func (m *Manager) scheduleLuxHoldCheck(room *RoomConfig, st *luxRoomState, check *luxHoldCheck) {
+	st.checking = check
+	check.timer = m.clock.AfterFunc(luxHoldConfirmDelay, func() { m.confirmLuxHold(room, check) })
+}
+
+// confirmLuxHold reads the cans again after an off-path brightness or color report. Back on the
+// fade path, the report was a late one from the plugin's own fade, and nothing is held. Still off
+// the path and steady, it is a person's change, and the room is held. Still off the path but
+// moving, the light may be lagging the fade or settling, so it reads again: as often as needed
+// while the fade runs, then up to luxHoldConfirmReads times. When the read fails, the first
+// report decides, so a person's change is not lost.
+func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
+	s, err := m.haClient.GetState(room.LuxControl.Cans)
+	action, _ := m.evaluateConditions(room)
+	now := m.clock.Now()
+
+	m.luxMu.Lock()
+	st := m.luxRoom(room.HueGroup)
+	if st.checking != check {
+		m.luxMu.Unlock() // cancelled: the hold was cleared or the command was forgotten
+		return
+	}
+	st.checking = nil
+	if st.held || st.cmd == nil || action != "on" {
+		m.luxMu.Unlock()
+		return
+	}
+	reason := check.reason
+	if err == nil && s != nil {
+		if !now.Before(st.cmd.at.Add(st.cmd.transition)) {
+			check.reads++ // a group may lag a running fade by several seconds, so only reads after it count
+		}
+		if reason = cansChangeReason(room, st, s, now); reason == "" {
+			skipped := check.skipped
+			m.luxMu.Unlock()
+			m.logger.Info("Possible manual change not confirmed; the cans are on the fade path",
+				zap.String("room", room.HueGroup), zap.String("first_reason", check.reason))
+			if skipped {
+				m.luxEvaluate(room, "hold check cleared")
+			}
+			return
+		}
+		if s.State == "on" && check.reads < luxHoldConfirmReads && luxReportMoved(check.last, s) {
+			check.last = s
+			m.scheduleLuxHoldCheck(room, st, check)
+			m.luxMu.Unlock()
+			return
+		}
+	}
+	st.held, st.heldSince, st.heldReason = true, now, reason
+	m.luxMu.Unlock()
+	m.logger.Info("Manual change detected; holding room",
+		zap.String("room", room.HueGroup),
+		zap.String("reason", reason))
+	m.setLuxHoldHelper(room, true)
+}
+
+// luxReportMoved reports whether brightness or color temperature changed between two reports by
+// more than the reverse tolerance, the jitter a report may have.
+func luxReportMoved(a, b *ha.State) bool {
+	ba, okA := numberAttr(a.Attributes, "brightness")
+	bb, okB := numberAttr(b.Attributes, "brightness")
+	if okA != okB || math.Abs(ba-bb)/255*100 > manualReverseBrightnessTolerance {
+		return true
+	}
+	ka, okA := numberAttr(a.Attributes, "color_temp_kelvin")
+	kb, okB := numberAttr(b.Attributes, "color_temp_kelvin")
+	return okA != okB || math.Abs(ka-kb) > manualReverseKelvinTolerance
 }
 
 // handleFollowerChange is handleCansChange for a follower light: a report that is not on the
@@ -917,6 +1059,7 @@ func (m *Manager) clearLuxHold(room *RoomConfig, reason string) {
 	st := m.luxRoom(room.HueGroup)
 	wasHeld := st.held
 	st.held, st.heldReason, st.heldSince = false, "", time.Time{}
+	st.cancelHoldCheck()
 	st.cmd = nil
 	st.previous = nil
 	st.followers = map[string]*luxCommand{}
@@ -945,6 +1088,7 @@ func (m *Manager) forgetLuxCommand(room *RoomConfig) {
 	m.luxMu.Lock()
 	defer m.luxMu.Unlock()
 	st := m.luxRoom(room.HueGroup)
+	st.cancelHoldCheck()
 	st.cmd = nil
 	st.previous = nil
 	st.followers = map[string]*luxCommand{}
@@ -959,6 +1103,7 @@ func (m *Manager) noteLuxRoomOff(room *RoomConfig) {
 	m.luxMu.Lock()
 	defer m.luxMu.Unlock()
 	st := m.luxRoom(room.HueGroup)
+	st.cancelHoldCheck()
 	st.cmd = &luxCommand{at: m.clock.Now(), on: false, transition: 0}
 	st.previous = nil
 	for _, f := range room.LuxControl.FollowerLights {

@@ -482,6 +482,9 @@ func (m *Manager) startTidalPlayback(leadEntityID string, leadPlayerName string,
 	if m.socoClient == nil {
 		return 1, fmt.Errorf("tidal playback requested but SoCo-CLI client is not configured (set SOCO_CLI_URL)")
 	}
+	if m.skipHandsOff(leadPlayerName, "sharelink") {
+		return 1, fmt.Errorf("lead speaker %s is hands-off", leadPlayerName)
+	}
 
 	for attempt := 1; attempt <= playbackVerificationRetries; attempt++ {
 		if err := m.socoClient.PlayShareLink(leadPlayerName, option.URI); err != nil {
