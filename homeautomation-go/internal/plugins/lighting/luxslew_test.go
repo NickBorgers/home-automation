@@ -180,7 +180,7 @@ func TestLux_FollowersGetTheClampedValueAndFadeWhenAlreadyOn(t *testing.T) {
 	// WHEN: the first tick runs
 	f.manager.luxTick()
 
-	// THEN: the strip is derived from the clamped 75%, not the 100% goal, with the long transition
+	// THEN: the strip is derived from the clamped 75%, not the 100% goal, with the fast fade-up transition
 	calls := callsTo(f.env.MockHA, "turn_on", strip)
 	require.Len(t, calls, 1)
 	assert.Equal(t, 80, calls[0].Data["brightness_pct"], "20 + 0.8 * 75")
