@@ -1250,8 +1250,7 @@ func TestStateTrackingManager_ArrivalDebounce_FirstArrivalNotSuppressed(t *testi
 
 func TestAnnounceArrivalDirect_UsesDefaultSpeakers(t *testing.T) {
 	// Arrival TTS names no speakers, so the notifier plays it on the shared
-	// default_speakers list. Nothing here rewrites that list for grouped
-	// Sonos speakers (regression: #1145).
+	// default_speakers list.
 	logger := zap.NewNop()
 	mockHA := ha.NewMockClient()
 	stateMgr := state.NewManager(mockHA, logger, false)

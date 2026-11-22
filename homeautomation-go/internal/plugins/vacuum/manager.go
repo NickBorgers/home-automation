@@ -310,8 +310,7 @@ func (m *Manager) maybeAnnounce(errorDesc string) {
 		m.recordAnnounced(now, message)
 	default:
 		m.logger.Info("Vacuum announcement sent",
-			zap.String("message", message),
-			zap.Strings("speakers", m.cfg.Vacuum.Announcement.Speakers))
+			zap.String("message", message))
 		m.recordAnnounced(now, message)
 	}
 }
