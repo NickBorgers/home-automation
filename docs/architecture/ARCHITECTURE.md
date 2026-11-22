@@ -526,8 +526,11 @@ reads `isAnyoneHome` for clear confirmations
 - Follows the robot's room from the Valetudo map and the house map frame; marks rooms clean as it leaves them;
   learns battery costs per room and for the trip
 - Sends the robot home, or pauses it when the return path is blocked by an occupied or unknown room, when its
-  route becomes unavailable. A robot it
-  paused stays its pause, whether the robot reports paused or idle, until the way home clears
+  route becomes unavailable. When only an occupied area blocks the route (and the way home too), the robot
+  pauses and waits up to `route_blocked_wait` for it to clear: if it clears in time, the run resumes; if not,
+  the run aborts and the robot goes home once its way is clear. A sleeper's room or any other non-waitable
+  block aborts the run immediately. A paused robot of an aborted run stays its pause, whether it reports
+  paused or idle, until the way home clears
 - With no run tracked, sends home a robot left idle or paused away from the dock for `stranded_after`, once its
   way home is clear
 - `log_only` keeps helpers and costs up to date but never commands the robot; `READ_ONLY` blocks every write

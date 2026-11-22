@@ -1321,6 +1321,9 @@ func (s *Scheduler) checkBlockedWait(now time.Time, st *valetudo.State, restr Re
 	case reason == "":
 		// Start resumes the job the pause left; Valetudo keeps the rooms still to clean.
 		if s.command(valetudo.ActionStart, "route is clear again") != nil {
+			if now.Sub(r.waitSince) >= s.cfg.RouteBlockedWait {
+				break // start kept failing; give up — fall through to abort
+			}
 			return true // try again on the next poll, until the wait runs out
 		}
 		s.logger.Info("Vacuum route is available again; resuming the run", zap.Duration("waited", now.Sub(r.waitSince)),
