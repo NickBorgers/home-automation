@@ -801,22 +801,26 @@ type TVOutputs struct {
 
 // TVBrightnessState is one decision about TV and sync box brightness.
 type TVBrightnessState struct {
-	Trigger    string                `json:"trigger"`
-	TargetLux  float64               `json:"targetLux"` // tvRoomTargetLux from the lighting plugin
-	Fraction   float64               `json:"fraction"`  // 0 = dimmest, 1 = brightest, log scale on lux
-	Decision   string                `json:"decision"`
-	TV         DeviceBrightnessState `json:"tv"`
-	SyncBox    DeviceBrightnessState `json:"syncBox"`
-	LastUpdate time.Time             `json:"lastUpdate"`
+	Trigger           string                `json:"trigger"`
+	SessionGeneration uint64                `json:"sessionGeneration"`
+	PowerState        string                `json:"powerState"`
+	TargetLux         float64               `json:"targetLux"` // tvRoomTargetLux from the lighting plugin
+	Fraction          float64               `json:"fraction"`  // 0 = dimmest, 1 = brightest, log scale on lux
+	Decision          string                `json:"decision"`
+	TV                DeviceBrightnessState `json:"tv"`
+	SyncBox           DeviceBrightnessState `json:"syncBox"`
+	LastUpdate        time.Time             `json:"lastUpdate"`
 }
 
 // DeviceBrightnessState is the brightness decision for one device.
 type DeviceBrightnessState struct {
-	Goal       int    `json:"goal"`
-	Current    int    `json:"current"`
-	Held       bool   `json:"held"`
-	HeldReason string `json:"heldReason,omitempty"`
-	Decision   string `json:"decision"`
+	Goal         int    `json:"goal"`
+	Current      int    `json:"current"`
+	Held         bool   `json:"held"`
+	HeldReason   string `json:"heldReason,omitempty"`
+	Decision     string `json:"decision"`
+	ReadSource   string `json:"readSource,omitempty"`
+	HoldEvidence string `json:"holdEvidence,omitempty"`
 }
 
 // ============================================================================

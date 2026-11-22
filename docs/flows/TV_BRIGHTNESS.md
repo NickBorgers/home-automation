@@ -33,17 +33,17 @@ The plugin acts only while the TV is on (`media_player.sony_xr_65a80k`). It chan
 
 ## Turning on
 
-When the TV turns on, the plugin waits 10 seconds. The Bravia API answers "not power-on" while the panel starts. Then it sets both devices to the current target.
+When the TV turns off or enters standby, the plugin immediately ends the brightness session and clears both devices' independent holds and remembered values. When the TV turns on, the plugin waits 10 seconds. The Bravia API answers "not power-on" while the panel starts. Then it sets both devices to the current target. A delayed apply from an older power session cannot affect the new session.
 
 ## Display off while Home Assistant says the TV is on
 
-The Bravia entity in Home Assistant can be stale. The plugin then tries the TV while its display is off. The TV answers error 40005: "not power-on" to a read, or "Display Is Turned off" to a write. Both mean the same thing. The plugin records the decision `TV screen not ready` and logs nothing above debug level. The next target change tries again.
+The Bravia entity in Home Assistant can be stale. The plugin then tries the TV while its display is off. The TV answers error 40005: "not power-on" to a read, or "Display Is Turned off" to a write. Both mean the same thing. The plugin records the decision `TV screen not ready`, forgets the prior-session reading, and logs nothing above debug level. EOF and other read failures also do not create a hold. The next target change tries again.
 
 ## Manual changes
 
 A person can change the TV brightness with the remote, or the sync box brightness in the Hue app. The plugin keeps that choice until the TV turns off and on again.
 
-- Before each change, the plugin reads the device. If the value is not the last value it set, a person changed it. The plugin holds that device.
+- Before each change, the plugin reads the device. For the TV, an unexpected value is confirmed with a same-value picture-setting write. This no-op does not overwrite the observed choice: if the display accepts it, the plugin holds; if Bravia rejects it as display-off, the plugin waits without creating a hold. The sync box continues to use its Home Assistant reading and one-point rounding tolerance.
 - The TV and the sync box are held separately.
 - A picture mode change can also change the TV brightness. For example, Dolby Vision content uses its own picture mode. The plugin sees this as a manual change and holds the TV. This is on purpose: the plugin does not fight the TV.
 
@@ -77,10 +77,11 @@ The two lux ends affect only the TV picture. Hue Sync uses the Living calibratio
 
 | Field | Meaning |
 |-------|---------|
-| `trigger` | `target_lux` or `tv_power_on` |
+| `trigger` | `target_lux`, `tv_power_on`, or `tv_power_off` |
+| `sessionGeneration`, `powerState` | Brightness-session identity and raw TV power state |
 | `targetLux`, `fraction` | The target and its share on the log scale |
 | `decision` | `applied`, `TV off` or `no target lux yet` |
-| `tv`, `syncBox` | Per device: `goal`, `current`, `held`, `heldReason`, `decision` |
+| `tv`, `syncBox` | Per device: `goal`, `current`, `held`, `heldReason`, `decision`, `readSource`, and `holdEvidence` |
 
 ## Debugging
 

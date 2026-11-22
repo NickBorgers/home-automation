@@ -55,8 +55,9 @@ type PictureClient interface {
 
 // deviceBrightness is what the plugin knows about one device's brightness.
 type deviceBrightness struct {
-	held       bool
-	heldReason string
+	held         bool
+	heldReason   string
+	holdEvidence string
 	// last is the value the plugin last sent, or the value it found and accepted. A different
 	// reading later means a person changed it. Nil means unknown (after start or power-on).
 	last *int
@@ -102,8 +103,8 @@ func (m *Manager) handleSyncBoxLightSyncChange(_ string, _, newState *ha.State) 
 	}
 }
 
-// brightnessOnPowerOn starts a fresh session when the TV turns on: holds and remembered values
-// are cleared, then both devices are set after the panel has had time to start.
+// brightnessOnPowerOn applies both devices after the panel has had time to start. The off
+// transition has already cleared the prior session's holds and remembered values.
 //
 // If the TV turns off and on again within the power-on delay, two goroutines are outstanding.
 // powerOnGen lets the earlier goroutine detect it has been superseded and exit without clearing
@@ -123,10 +124,29 @@ func (m *Manager) brightnessOnPowerOn() {
 		if m.bright.powerOnGen != gen {
 			return // superseded by a later power-on
 		}
-		m.bright.tv = deviceBrightness{}
-		m.bright.syncBox = deviceBrightness{}
 		m.applyBrightnessLocked("tv_power_on")
 	}()
+}
+
+// brightnessOnPowerOff ends the current brightness session immediately. Incrementing powerOnGen
+// also invalidates a delayed apply from a prior on transition.
+func (m *Manager) brightnessOnPowerOff(powerState string) {
+	m.bright.mu.Lock()
+	defer m.bright.mu.Unlock()
+	m.bright.powerOnGen++
+	m.bright.tv = deviceBrightness{}
+	m.bright.syncBox = deviceBrightness{}
+	m.shadowTracker.UpdateBrightness(shadowstate.TVBrightnessState{
+		Trigger:           "tv_power_off",
+		SessionGeneration: m.bright.powerOnGen,
+		PowerState:        powerState,
+		Decision:          "TV off; brightness session cleared",
+		TV:                shadowstate.DeviceBrightnessState{Decision: "session cleared"},
+		SyncBox:           shadowstate.DeviceBrightnessState{Decision: "session cleared"},
+		LastUpdate:        m.timeNow(),
+	})
+	m.logger.Debug("TV brightness session cleared",
+		zap.Uint64("session_generation", m.bright.powerOnGen), zap.String("power_state", powerState))
 }
 
 // applyBrightness sets the TV and sync box brightness for the current target.
@@ -138,7 +158,13 @@ func (m *Manager) applyBrightness(trigger string) {
 
 // applyBrightnessLocked does the work of applyBrightness. Caller holds m.bright.mu.
 func (m *Manager) applyBrightnessLocked(trigger string) {
-	rec := shadowstate.TVBrightnessState{Trigger: trigger}
+	m.tvRemoteMu.RLock()
+	on := m.tvRemoteOn
+	powerState := m.tvRemoteRawState
+	m.tvRemoteMu.RUnlock()
+	rec := shadowstate.TVBrightnessState{
+		Trigger: trigger, SessionGeneration: m.bright.powerOnGen, PowerState: powerState,
+	}
 	defer func() {
 		rec.LastUpdate = m.timeNow()
 		m.shadowTracker.UpdateBrightness(rec)
@@ -150,9 +176,6 @@ func (m *Manager) applyBrightnessLocked(trigger string) {
 			zap.String("sync_box", rec.SyncBox.Decision))
 	}()
 
-	m.tvRemoteMu.RLock()
-	on := m.tvRemoteOn
-	m.tvRemoteMu.RUnlock()
 	if !on {
 		rec.Decision = "TV off"
 		return
@@ -187,7 +210,7 @@ func (m *Manager) applySyncBoxBrightness() shadowstate.DeviceBrightnessState {
 		return shadowstate.DeviceBrightnessState{Decision: "no curve brightness yet"}
 	}
 	goal := syncBoxBrightnessGoal(pct)
-	out := shadowstate.DeviceBrightnessState{Goal: goal}
+	out := shadowstate.DeviceBrightnessState{Goal: goal, ReadSource: SyncBoxBrightnessEntity}
 
 	syncState, err := m.haClient.GetState(SyncBoxLightSyncEntity)
 	if err != nil || syncState == nil || syncState.State != "on" {
@@ -222,7 +245,7 @@ func syncBoxBrightnessGoal(pct float64) int {
 // applyTVBrightness reads the TV's brightness and range, then sets it.
 func (m *Manager) applyTVBrightness(frac float64) shadowstate.DeviceBrightnessState {
 	dev := &m.bright.tv
-	out := shadowstate.DeviceBrightnessState{}
+	out := shadowstate.DeviceBrightnessState{ReadSource: "bravia.getPictureQualitySettings"}
 	if m.bright.client == nil {
 		out.Decision = "not configured (BRAVIA_IP or BRAVIA_PSK unset)"
 		return out
@@ -230,13 +253,15 @@ func (m *Manager) applyTVBrightness(frac float64) shadowstate.DeviceBrightnessSt
 	if dev.held {
 		// Goal is not set here: computing it requires a live read of the TV's range (Min/Max),
 		// which costs a network round-trip. Shadow state shows Goal=0 while held.
-		out.Held, out.HeldReason, out.Decision = true, dev.heldReason, "held: manual change"
+		out.Held, out.HeldReason, out.HoldEvidence, out.Decision =
+			true, dev.heldReason, dev.holdEvidence, "held: manual change"
 		return out
 	}
 	ctx, cancel := context.WithTimeout(m.ctx, braviaCallTimeout)
 	defer cancel()
 	s, err := m.bright.client.GetBrightness(ctx)
 	if errors.Is(err, bravia.ErrTurnedOff) {
+		dev.last = nil
 		out.Decision = "TV screen not ready"
 		return out
 	}
@@ -249,6 +274,29 @@ func (m *Manager) applyTVBrightness(frac float64) shadowstate.DeviceBrightnessSt
 	out.Goal = s.Min + int(math.Round(share*float64(s.Max-s.Min)))
 	out.Current = s.Current
 	goal := out.Goal
+	if dev.last != nil && s.Current != *dev.last && !m.readOnly {
+		lastSet := *dev.last
+		// A successful read can still return 0 while the panel is transitioning. Writing the
+		// same value is a no-op that confirms picture settings are currently writable without
+		// overwriting a real remote or picture-mode choice.
+		if err := m.bright.client.SetBrightness(ctx, s.Current); err != nil {
+			if errors.Is(err, bravia.ErrTurnedOff) {
+				dev.last = nil
+				out.Decision = "TV screen not ready"
+				out.HoldEvidence = "brightness mismatch rejected by display-off probe"
+				m.logger.Debug("TV brightness mismatch ignored while display is not ready",
+					zap.Int("current", s.Current), zap.Int("last_set", lastSet),
+					zap.Uint64("session_generation", m.bright.powerOnGen))
+				return out
+			}
+			out.Decision = "manual change unconfirmed: " + err.Error()
+			out.HoldEvidence = "brightness mismatch; no-op probe failed"
+			m.logger.Warn("Could not confirm TV brightness change",
+				zap.Int("current", s.Current), zap.Int("last_set", lastSet), zap.Error(err))
+			return out
+		}
+		out.HoldEvidence = "brightness mismatch confirmed by writable display"
+	}
 	return m.decideAndSend(dev, out, s.Current, 0, 1, "TV", func() error {
 		return m.bright.client.SetBrightness(ctx, goal)
 	})
@@ -259,13 +307,23 @@ func (m *Manager) applyTVBrightness(frac float64) shadowstate.DeviceBrightnessSt
 func (m *Manager) decideAndSend(dev *deviceBrightness, out shadowstate.DeviceBrightnessState, cur, tolerance,
 	minStep int, name string, send func() error) shadowstate.DeviceBrightnessState {
 	if !dev.held && dev.last != nil && absInt(cur-*dev.last) > tolerance {
+		if out.HoldEvidence == "" {
+			out.HoldEvidence = "brightness mismatch beyond device tolerance"
+		}
 		dev.held = true
 		dev.heldReason = fmt.Sprintf("found %d, last set %d", cur, *dev.last)
+		dev.holdEvidence = out.HoldEvidence
+		m.tvRemoteMu.RLock()
+		powerState := m.tvRemoteRawState
+		m.tvRemoteMu.RUnlock()
 		m.logger.Info("Manual brightness change, holding until the TV turns off",
-			zap.String("device", name), zap.Int("current", cur), zap.Int("last_set", *dev.last))
+			zap.String("device", name), zap.Int("current", cur), zap.Int("last_set", *dev.last),
+			zap.Uint64("session_generation", m.bright.powerOnGen), zap.String("power_state", powerState),
+			zap.String("read_source", out.ReadSource), zap.String("hold_evidence", out.HoldEvidence))
 	}
 	if dev.held {
-		out.Held, out.HeldReason, out.Decision = true, dev.heldReason, "held: manual change"
+		out.Held, out.HeldReason, out.HoldEvidence, out.Decision =
+			true, dev.heldReason, dev.holdEvidence, "held: manual change"
 		return out
 	}
 	if absInt(out.Goal-cur) < minStep {
@@ -284,6 +342,7 @@ func (m *Manager) decideAndSend(dev *deviceBrightness, out shadowstate.DeviceBri
 	if err := send(); err != nil {
 		if errors.Is(err, bravia.ErrTurnedOff) {
 			// The display is off. That is not a fault: the next lux change tries again.
+			dev.last = nil
 			m.logger.Debug("TV display is off, brightness not set", zap.String("device", name))
 			out.Decision = "TV screen not ready"
 			return out
