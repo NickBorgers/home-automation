@@ -6,7 +6,7 @@
 /* Rendered by housemap-render -format html. See docs/architecture/HOUSE_MAP.md.
    Layout: a drafting sheet. Plan on the left, the file's contents on the right; stacks on phones. */
 :root {
-  --paper: #f3f5f2; --ink: #1f2a26; --muted: #5d6b65; --rule: #c9d2cc; --panel: #fbfcfa; --accent: #2f6f8f; --warn: #b5651d;
+  --paper: #f3f5f2; --ink: #1f2a26; --muted: #5d6b65; --rule: #c9d2cc; --panel: #fbfcfa; --accent: #2f6f8f; --warn: #b5651d; --cam-in: #8a4a9c;
   --fill-s: 38%; --fill-l: 80%; --grid: #dfe5e1;
   --o-yard: #dfe7cf; --o-lawn: #d3e4c4; --o-drive: #d9d6cf; --o-pave: #e8e2d6; --o-water: #bcd9e6; --o-wood: #e6cdb8; --o-bldg: #cfd3d6;
   --display: "Fraunces", Georgia, serif;
@@ -14,11 +14,11 @@
   --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-  --paper: #141a18; --ink: #e4ebe7; --muted: #9aa8a1; --rule: #2e3a35; --panel: #1b2320; --accent: #7cb8d6; --warn: #e3a062;
+  --paper: #141a18; --ink: #e4ebe7; --muted: #9aa8a1; --rule: #2e3a35; --panel: #1b2320; --accent: #7cb8d6; --warn: #e3a062; --cam-in: #c99bdb;
   --fill-s: 30%; --fill-l: 30%; --grid: #24302b;
   --o-yard: #26301f; --o-lawn: #22321f; --o-drive: #2f2d29; --o-pave: #34302a; --o-water: #1f3a46; --o-wood: #3e3027; --o-bldg: #30363a; color-scheme: dark } }
 :root[data-theme="dark"] {
-  --paper: #141a18; --ink: #e4ebe7; --muted: #9aa8a1; --rule: #2e3a35; --panel: #1b2320; --accent: #7cb8d6; --warn: #e3a062;
+  --paper: #141a18; --ink: #e4ebe7; --muted: #9aa8a1; --rule: #2e3a35; --panel: #1b2320; --accent: #7cb8d6; --warn: #e3a062; --cam-in: #c99bdb;
   --fill-s: 30%; --fill-l: 30%; --grid: #24302b;
   --o-yard: #26301f; --o-lawn: #22321f; --o-drive: #2f2d29; --o-pave: #34302a; --o-water: #1f3a46; --o-wood: #3e3027; --o-bldg: #30363a; color-scheme: dark }
 
@@ -37,7 +37,9 @@ h1 { font-family: var(--display); font-weight: 600; font-size: 30px; line-height
 .controls input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .grid { stroke: var(--grid); stroke-width: 1; }
-.room { fill: hsl(var(--h) var(--fill-s) var(--fill-l)); stroke: var(--ink); stroke-width: 1.4; stroke-linejoin: round; }
+.room { fill: hsl(var(--h) var(--fill-s) var(--fill-l)); stroke: var(--muted); stroke-width: .8; stroke-linejoin: round; }
+.wall { fill: none; stroke: var(--ink); stroke-width: 5; stroke-linejoin: miter; }
+.hide-walls .wall { display: none; }
 .room:hover { opacity: .8; }
 .out { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; }
 .o-yard { fill: var(--o-yard); } .o-driveway { fill: var(--o-drive); } .o-patio { fill: var(--o-pave); }
@@ -46,9 +48,13 @@ h1 { font-family: var(--display); font-weight: 600; font-size: 30px; line-height
 .door.ext { stroke: var(--warn); stroke-width: 7; }
 .fov { fill: var(--accent); fill-opacity: .10; stroke: var(--accent); stroke-opacity: .5; stroke-width: 1; }
 .cam { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
+.fov.indoor { fill: var(--cam-in); stroke: var(--cam-in); fill-opacity: .14; }
+.cam.indoor { fill: var(--cam-in); } .cn.indoor { fill: var(--cam-in); }
+.sw-cam { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); display: inline-block; }
+.sw-cam.indoor { background: var(--cam-in); }
 .cn { font: 600 10px var(--mono); fill: var(--accent); pointer-events: none; }
 .fence { fill: none; stroke: var(--ink); stroke-width: 2.5; stroke-dasharray: 2 4; }
-.hide-cams .fov, .hide-cams .cam, .hide-cams .cn { display: none; }
+.hide-outcams .outdoor, .hide-incams .indoor { display: none; }
 .opening { stroke: var(--paper); stroke-width: 6; stroke-linecap: butt; opacity: .9; }
 .rn { font: 600 11px var(--body); fill: var(--ink); text-anchor: middle; pointer-events: none; }
 .on { font: italic 400 11px var(--body); fill: var(--muted); text-anchor: middle; pointer-events: none; }
@@ -79,7 +85,7 @@ ul.plain { margin: 0; padding-left: 18px; } ul.plain li { margin: 3px 0; }
   <header>
     <span class="eyebrow">{{.Source}} · metres, north up</span>
     <h1>House Floor Plan</h1>
-    <p class="sub">Drawn from the map file itself. It has {{.NRooms}} rooms{{if .Valetudo}}, drawn from a vacuum map turned {{.Valetudo.RotationDeg}}° to north-up{{end}}. Blue bars are doors, orange bars are outside doors, and gaps in the outline are open-plan openings. Camera wedges show each camera's field of view and range. Grid lines are 5 m apart.</p>
+    <p class="sub">Drawn from the map file itself. It has {{.NRooms}} rooms{{if .Valetudo}}, drawn from a vacuum map turned {{.Valetudo.RotationDeg}}° to north-up{{end}}. Thick dark lines are outside walls, guessed from the rooms. Blue bars are doors, orange bars are outside doors, and gaps in the outline are open-plan openings. Camera wedges show each camera's field of view and range: blue for outdoor cameras, purple for indoor cameras. Grid lines are 5 m apart.</p>
   </header>
 
   <div class="grid2">
@@ -87,15 +93,18 @@ ul.plain { margin: 0; padding-left: 18px; } ul.plain li { margin: 3px 0; }
       <div class="controls">
         <label><input type="checkbox" id="t-labels" checked> Names</label>
         <label><input type="checkbox" id="t-out" checked> Outdoors</label>
-        <label><input type="checkbox" id="t-cams" checked> Cameras</label>
+        <label><input type="checkbox" id="t-walls" checked> Outside walls</label>
+        <label><input type="checkbox" id="t-outcams" checked> <span class="sw-cam outdoor"></span> Outdoor cameras</label>
+        <label><input type="checkbox" id="t-incams" checked> <span class="sw-cam indoor"></span> Indoor cameras</label>
       </div>
       <svg id="plan" viewBox="0 0 {{printf "%.0f" .Width}} {{printf "%.0f" .Height}}" role="img" aria-label="House map, north up">
         <g>{{range .Grid}}<line class="grid" x1="{{f1 .X1}}" y1="{{f1 .Y1}}" x2="{{f1 .X2}}" y2="{{f1 .Y2}}"/>{{end}}</g>
         <g>{{range .Outdoor}}<polygon class="out o-{{.Kind}}" points="{{.Points}}"><title>{{.Name}} ({{.Kind}})</title></polygon>{{end}}</g>
         <g>{{range .Rooms}}<polygon class="room" style="--h:{{.Hue}}" points="{{.Points}}"><title>{{.Name}} · area {{.Area}}</title></polygon>{{end}}</g>
+        <g>{{range .Lines}}{{if eq .Kind "wall"}}<polyline class="wall" points="{{.Points}}"><title>{{.Name}}</title></polyline>{{end}}{{end}}</g>
         <g>{{range .Doors}}<line class="{{.Class}}" x1="{{f1 .X1}}" y1="{{f1 .Y1}}" x2="{{f1 .X2}}" y2="{{f1 .Y2}}"><title>{{.Name}}: {{printf "%.2f" .Width}} m</title></line>{{end}}</g>
-        <g>{{range .Lines}}<polyline class="fence" points="{{.Points}}"><title>{{.Name}}</title></polyline>{{end}}</g>
-        <g>{{range .Cameras}}<polygon class="fov" points="{{.Wedge}}"><title>{{.Name}}: {{.Heading}}°, {{.Fov}}° wide, {{.Range}} m</title></polygon><circle class="cam" cx="{{f1 .X}}" cy="{{f1 .Y}}" r="5"><title>{{.Name}}</title></circle>{{end}}</g>
+        <g>{{range .Lines}}{{if ne .Kind "wall"}}<polyline class="fence" points="{{.Points}}"><title>{{.Name}}</title></polyline>{{end}}{{end}}</g>
+        <g>{{range .Cameras}}<polygon class="fov {{.Class}}" points="{{.Wedge}}"><title>{{.Name}}: {{.Heading}}°, {{.Fov}}° wide, {{.Range}} m</title></polygon><circle class="cam {{.Class}}" cx="{{f1 .X}}" cy="{{f1 .Y}}" r="5"><title>{{.Name}}</title></circle>{{end}}</g>
         <g>{{range .Labels}}<text class="{{.Class}}" x="{{f1 .X}}" y="{{f1 .Y}}">{{.Text}}</text>{{end}}</g>
         <g class="compass" transform="translate({{f0 .NorthX}},26)"><path d="M0,-14 L8,8 L0,3 L-8,8 Z"/><text y="22">N</text></g>
         <g class="scale" transform="translate(20,{{f0 .ScaleY}})"><line x1="0" y1="0" x2="{{.ScaleBar}}" y2="0"/><line x1="0" y1="-5" x2="0" y2="5"/><line x1="{{.ScaleBar}}" y1="-5" x2="{{.ScaleBar}}" y2="5"/><text x="4" y="-6">5 m</text></g>
@@ -140,6 +149,6 @@ ul.plain { margin: 0; padding-left: 18px; } ul.plain li { margin: 3px 0; }
     const apply = () => plan.classList.toggle(cls, !el.checked);
     el.addEventListener('change', apply); apply();
   };
-  bind('t-labels', 'hide-labels'); bind('t-out', 'hide-out'); bind('t-cams', 'hide-cams');
+  bind('t-labels', 'hide-labels'); bind('t-out', 'hide-out'); bind('t-walls', 'hide-walls'); bind('t-outcams', 'hide-outcams'); bind('t-incams', 'hide-incams');
 })();
 </script>

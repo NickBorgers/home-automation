@@ -44,15 +44,16 @@ const (
 	KindOverhead = "overhead"
 )
 
-// Line kinds.
+// Line kinds. A wall is the house's outside wall, drawn solid; close it by repeating the first point.
 const (
 	KindFence = "fence"
+	KindWall  = "wall"
 )
 
 var (
 	spaceKinds = []string{KindRoom, KindGarage, KindYard, KindPatio, KindDeck, KindPool, KindDriveway, KindOutbuilding}
 	doorKinds  = []string{KindDoor, KindOpening, KindOverhead}
-	lineKinds  = []string{KindFence}
+	lineKinds  = []string{KindFence, KindWall}
 )
 
 // Point is [x, y] in metres. x points east and y points north.

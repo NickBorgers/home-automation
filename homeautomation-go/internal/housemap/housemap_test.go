@@ -90,7 +90,7 @@ func TestValidate_Rules(t *testing.T) {
 			"doors: {d: {kind: opening, exterior: true, connects: [y1, y2], span: [[0, 0], [1, 0]]}}",
 			"an exterior door joins a room or garage"},
 		{"empty line", "lines: {l: }", `line "l": empty`},
-		{"unknown line kind", "lines: {l: {kind: wall, line: [[0, 0], [1, 0]]}}", `kind "wall"`},
+		{"unknown line kind", "lines: {l: {kind: hedge, line: [[0, 0], [1, 0]]}}", `kind "hedge"`},
 		{"short line", "lines: {l: {kind: fence, line: [[0, 0]]}}", "needs at least 2 points"},
 		{"empty camera", "cameras: {c: }", `camera "c": empty`},
 		{"zero fov", "cameras: {c: {fov_deg: 0, heading_deg: 0, range_m: 5}}", "fov_deg 0 must be"},

@@ -86,6 +86,8 @@ func TestWriteReviewHTML_Example(t *testing.T) {
 	}
 	assert.Contains(t, page, "<code>porch_cam</code>", "the outdoor camera is in the table")
 	assert.NotContains(t, page, "<code>cam_hall</code>", "indoor cameras are not in the outdoor table")
+	assert.Contains(t, page, `<circle class="cam outdoor"`, "outdoor cameras are marked so the page can colour and hide them")
+	assert.Contains(t, page, `<circle class="cam indoor"`, "indoor cameras are marked so the page can colour and hide them")
 	assert.Contains(t, page, "<code>study</code> <em>unseen</em>")
 	assert.NotContains(t, page, "<code>lounge</code> <em>unseen</em>")
 	assert.Contains(t, page, "<code>hall_to_kitchen</code>")
@@ -98,6 +100,19 @@ func TestWriteReviewHTML_Example(t *testing.T) {
 				"only Google Fonts may be loaded: %.40s", rest)
 		}
 	}
+}
+
+func TestWriteReviewHTML_DrawsWallsApartFromFences(t *testing.T) {
+	m := exampleMap(t)
+	m.Lines["outside"] = &Line{Kind: KindWall, Line: []Point{{0, 0}, {4, 0}, {4, 4}, {0, 0}}}
+	var buf bytes.Buffer
+	require.NoError(t, m.WriteReviewHTML(&buf, ReviewOptions{}))
+	page := buf.String()
+
+	assert.Contains(t, page, `<polyline class="wall"`)
+	assert.Contains(t, page, "<title>outside</title>")
+	assert.Equal(t, 1, strings.Count(page, `<polyline class="wall"`), "the wall is drawn once, as a wall")
+	assert.Equal(t, 1, strings.Count(page, `<polyline class="fence"`), "the example fence is still a fence")
 }
 
 func TestWriteReviewHTML_EscapesAndListsUnplaced(t *testing.T) {
