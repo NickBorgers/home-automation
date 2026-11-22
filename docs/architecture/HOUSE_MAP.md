@@ -10,7 +10,8 @@ The house map is a flat 2D plan of a house, inside and out. It is one hand-edite
 
 - **Spaces:** rooms and outdoor spaces, each a polygon.
 - **Doors:** each door names the two spaces it joins.
-- **Lines:** fences and other lines that are not spaces.
+- **Lines:** fences, outside walls and other lines that are not spaces. A line's kind is `fence` or `wall`.
+  A `wall` is the house's outside wall. To close it, repeat the first point at the end.
 - **Cameras:** where each camera is, which way it faces, how wide it sees and how far.
 
 The map is the one place for house geometry and topology. Plugins keep behaviour. For example, room presence
@@ -171,10 +172,11 @@ A public checkout has no map, so these tests skip.
 `cmd/housemap-render` draws a map. Run it from `homeautomation-go/`:
 
 ```bash
-# An SVG picture: spaces, doors, fences, camera views, a north arrow and a 5 m scale bar.
+# An SVG picture: spaces, doors, fences, walls, camera views, a north arrow and a 5 m scale bar.
 go run ./cmd/housemap-render -in ../configs/house_map.yaml -out house_map.svg
 
-# A review page: the plan on a 5 m grid with toggles for names, outdoor spaces and cameras, and side panels
+# A review page: the plan on a 5 m grid with toggles for names, outdoor spaces, outside walls, outdoor cameras
+# and indoor cameras, and side panels
 # for doors not yet placed, outdoor cameras, areas and doors with their widths and Frigate zones.
 go run ./cmd/housemap-render -format html -in ../configs/house_map.yaml \
     -room-presence ../configs/room_presence_config.yaml -out house_map.html
@@ -191,7 +193,8 @@ points, so keep the HTTP port off untrusted networks.
 
 Rooms are tinted by area. Each area's hue comes from a hash of its name, so no area needs a colour setting.
 Outdoor spaces are tinted by kind. On the review page, orange bars are exterior doors. Blue bars are doors. Pale bars are
-openings.
+openings. Outside walls are thick dark lines. Outdoor cameras are blue and indoor cameras are purple. The plan
+grows to fit every line and every camera's full view.
 
 ## Room graph
 

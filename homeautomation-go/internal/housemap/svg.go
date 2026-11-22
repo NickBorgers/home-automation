@@ -90,7 +90,11 @@ func (m *Map) WriteSVG(w io.Writer) error {
 
 	out(`<g id="lines" fill="none" stroke="#8b5a2b" stroke-width="2" stroke-dasharray="6 3">` + "\n")
 	for _, name := range sortedKeys(m.Lines) {
-		out(`<polyline points="%s"><title>%s</title></polyline>`+"\n", pts(m.Lines[name].Line), esc(name))
+		style := ""
+		if m.Lines[name].Kind == KindWall {
+			style = ` stroke="#333" stroke-width="3" stroke-dasharray="none"`
+		}
+		out(`<polyline points="%s"%s><title>%s</title></polyline>`+"\n", pts(m.Lines[name].Line), style, esc(name))
 	}
 	out("</g>\n")
 

@@ -57,6 +57,8 @@ type reviewCamera struct {
 	X, Y                float64
 	Heading, Fov, Range float64
 	Outdoor             bool
+	// Class is "outdoor" or "indoor". The page colours the two kinds apart and hides each with its own switch.
+	Class string
 }
 
 type reviewLabel struct {
@@ -89,7 +91,7 @@ type reviewPage struct {
 // cameras, areas and doors. The page is one self-contained HTML fragment that starts with <title>, ready
 // to publish as an artifact. It loads only Google Fonts.
 func (m *Map) WriteReviewHTML(w io.Writer, opts ReviewOptions) error {
-	// The box holds every space and camera, plus 2 m.
+	// The box holds every space, line and camera view, plus 2 m.
 	x0, y0 := math.Inf(1), math.Inf(1)
 	x1, y1 := math.Inf(-1), math.Inf(-1)
 	grow := func(p Point) {
@@ -100,8 +102,15 @@ func (m *Map) WriteReviewHTML(w io.Writer, opts ReviewOptions) error {
 			grow(p)
 		}
 	}
+	for _, l := range m.Lines {
+		for _, p := range l.Line {
+			grow(p)
+		}
+	}
 	for _, c := range m.Cameras {
-		grow(c.At)
+		for _, p := range cameraWedge(c) {
+			grow(p)
+		}
 	}
 	x0, y0, x1, y1 = x0-svgMargin, y0-svgMargin, x1+svgMargin, y1+svgMargin
 	sx := func(x float64) float64 { return (x - x0) * svgScale }
@@ -177,23 +186,34 @@ func (m *Map) WriteReviewHTML(w io.Writer, opts ReviewOptions) error {
 	}
 
 	for _, name := range sortedKeys(m.Lines) {
-		pg.Lines = append(pg.Lines, reviewSpace{Name: name, Points: pts(m.Lines[name].Line)})
+		pg.Lines = append(pg.Lines, reviewSpace{Name: name, Kind: m.Lines[name].Kind, Points: pts(m.Lines[name].Line)})
 	}
 
 	for _, name := range sortedKeys(m.Cameras) {
 		c := m.Cameras[name]
-		wedge := []Point{c.At}
-		for i := 0; i <= 16; i++ {
-			r := (c.HeadingDeg - c.FovDeg/2 + c.FovDeg*float64(i)/16) * math.Pi / 180
-			wedge = append(wedge, Point{c.At[0] + c.RangeM*math.Sin(r), c.At[1] + c.RangeM*math.Cos(r)})
-		}
+		wedge := cameraWedge(c)
 		x, y := sx(c.At[0]), sy(c.At[1])
+		outdoor := m.Outdoor(c)
+		class := "indoor"
+		if outdoor {
+			class = "outdoor"
+		}
 		pg.Cameras = append(pg.Cameras, reviewCamera{
 			Name: name, Wedge: pts(wedge), Note: c.Note, X: x, Y: y,
-			Heading: c.HeadingDeg, Fov: c.FovDeg, Range: c.RangeM, Outdoor: m.Outdoor(c),
+			Heading: c.HeadingDeg, Fov: c.FovDeg, Range: c.RangeM, Outdoor: outdoor, Class: class,
 		})
-		pg.Labels = append(pg.Labels, reviewLabel{Class: "cn", Text: strings.ReplaceAll(name, "_", " "), X: x + 8, Y: y - 6})
+		pg.Labels = append(pg.Labels, reviewLabel{Class: "cn " + class, Text: strings.ReplaceAll(name, "_", " "), X: x + 8, Y: y - 6})
 	}
 
 	return reviewTmpl.Execute(w, pg)
+}
+
+// cameraWedge is the outline of a camera's view: the camera, then 17 points along the arc at its range.
+func cameraWedge(c *Camera) []Point {
+	wedge := []Point{c.At}
+	for i := 0; i <= 16; i++ {
+		r := (c.HeadingDeg - c.FovDeg/2 + c.FovDeg*float64(i)/16) * math.Pi / 180
+		wedge = append(wedge, Point{c.At[0] + c.RangeM*math.Sin(r), c.At[1] + c.RangeM*math.Cos(r)})
+	}
+	return wedge
 }
