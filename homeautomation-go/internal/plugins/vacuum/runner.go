@@ -1290,7 +1290,7 @@ func (s *Scheduler) logRoomChange(r *run, st *valetudo.State, room string) {
 // Live occupancy-aware routing
 // ---------------------------------------------------------------------------
 
-// checkRouteAvailability re-checks our own run against current room access constraints. When the rest of the
+// checkRouteAvailability re-checks the run against current room access constraints. When the rest of the
 // tour becomes unavailable, the robot goes home if its return path is clear, and pauses where it is if not.
 // A paused robot goes home once the path clears. The caller holds tickMu.
 //

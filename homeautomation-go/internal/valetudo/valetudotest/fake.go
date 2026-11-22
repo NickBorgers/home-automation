@@ -353,6 +353,8 @@ func (r *Robot) apply(path string, body map[string]any) {
 		switch body["action"] {
 		case "home":
 			r.status, r.flag = "returning", "none"
+			// The job is done: clear the active segments so a resumed run on the next clean starts fresh.
+			r.active = map[string]bool{}
 		case "pause":
 			r.status, r.flag = "paused", "resumable"
 		case "stop":
