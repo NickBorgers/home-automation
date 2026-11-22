@@ -181,8 +181,8 @@ func TestSchedulerPendingNextRoomStaysDirtyOnStall(t *testing.T) {
 	assert.Equal(t, "on", e.state("input_boolean.vacuum_dirty_kitchen"))
 }
 
-// A run started elsewhere still needs min_dwell for every room; next_room_dwell is only for our own tour.
-func TestSchedulerExternalRunKeepsMinDwell(t *testing.T) {
+// A resumed run without targets needs min_dwell for every room; next_room_dwell is only for a tour of targets.
+func TestSchedulerResumedRunWithoutTargetsKeepsMinDwell(t *testing.T) {
 	e := newSchedEnv(t, ModeActive)
 	e.start()
 	e.robot.SetStatus("cleaning", "segment")

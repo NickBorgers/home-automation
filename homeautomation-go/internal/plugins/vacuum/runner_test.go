@@ -629,7 +629,9 @@ func TestSchedulerSharesRobotArea(t *testing.T) {
 	assert.Equal(t, "", e.hub.Vacuum(), "a stopped scheduler shares no area")
 }
 
-func TestSchedulerTracksExternalRun(t *testing.T) {
+// A run found in progress whose robot reports no active segments has no targets: any configured room counts
+// once the robot stays in it for min_dwell.
+func TestSchedulerTracksResumedRunWithoutTargets(t *testing.T) {
 	tests := []struct {
 		mode        string
 		fullCleared bool
@@ -650,8 +652,8 @@ func TestSchedulerTracksExternalRun(t *testing.T) {
 			e.advance(30 * time.Second)
 			run := e.sched().Run
 			require.NotNil(t, run)
-			assert.Equal(t, "external", run.Origin)
-			assert.Equal(t, "", run.Current, "an external room counts only after the dwell time")
+			assert.Equal(t, "resumed", run.Origin)
+			assert.Equal(t, "", run.Current, "without targets, a room counts only after the dwell time")
 
 			for i := 0; i < 5; i++ {
 				e.moveTo("kitchen", 98-i)
@@ -673,9 +675,47 @@ func TestSchedulerTracksExternalRun(t *testing.T) {
 			assert.Equal(t, tt.fullCleared, cleanedFull)
 			assert.Equal(t, tt.vacCleared, cleanedVac)
 			assert.False(t, e.cleanedAt(itemKey{"pantry", TreatmentFull}).After(schedT0))
-			assert.Empty(t, e.robot.Commands(), "an external run is only watched")
+			assert.Empty(t, e.robot.Commands(), "log_only sends nothing")
 		})
 	}
+}
+
+// A run found in progress takes its targets from the segments the robot's map marks active. A room the robot
+// only drives through is not a target and is not credited.
+func TestSchedulerResumedRunTakesActiveSegmentsAsTargets(t *testing.T) {
+	e := newSchedEnv(t, ModeLogOnly)
+	e.start()
+	e.tick()
+	e.robot.SetPreset("operation_mode", "vacuum_and_mop")
+	e.robot.SetActiveSegments("4", "3") // office, kitchen
+	e.robot.SetStatus("cleaning", "segment")
+	e.moveTo("pantry", 99)
+	e.advance(30 * time.Second)
+
+	run := e.sched().Run
+	require.NotNil(t, run)
+	assert.Equal(t, "resumed", run.Origin)
+	assert.Equal(t, "full", run.Treatment)
+	assert.Equal(t, []string{"kitchen", "office"}, run.Targets, "a tour from the robot's room")
+	assert.Equal(t, "", run.Current, "the pantry is not a target")
+
+	e.step("kitchen", 98)
+	assert.Equal(t, "kitchen", e.sched().Run.Current, "the first target counts at once")
+	for i := 0; i < 4; i++ {
+		e.step("pantry", 97)
+	}
+	e.robot.SetStatus("docked", "none")
+	e.step("mud", 96)
+	e.step("mud", 96)
+
+	last := e.sched().LastRun
+	require.NotNil(t, last)
+	assert.Equal(t, "completed", last.Outcome)
+	assert.Equal(t, []string{"kitchen"}, last.Done)
+	assert.Equal(t, []string{"office"}, last.Targets[1:])
+	assert.True(t, e.cleanedAt(itemKey{"kitchen", TreatmentFull}).After(schedT0))
+	assert.False(t, e.cleanedAt(itemKey{"pantry", TreatmentFull}).After(schedT0))
+	assert.False(t, e.cleanedAt(itemKey{"office", TreatmentFull}).After(schedT0))
 }
 
 func TestSchedulerManualOffCountsAsCleaned(t *testing.T) {

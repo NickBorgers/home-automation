@@ -31,10 +31,11 @@ type Robot interface {
 	SetRestrictions(ctx context.Context, r valetudo.Restrictions) error
 }
 
-// Run origins.
+// Run origins. The scheduler is the only thing that drives the robot, so every run is its own. originResumed is
+// a run this process found in progress, such as after a restart in the middle of a run.
 const (
 	originScheduler = "scheduler"
-	originExternal  = "external"
+	originResumed   = "resumed"
 )
 
 // Run outcomes.
@@ -46,9 +47,6 @@ const (
 	// when the robot reported an error during the stall.
 	outcomeStalled = "stalled"
 	outcomeError   = "error"
-	// outcomeSuperseded ends a run someone else started when a new job, with another operation mode, starts
-	// after the robot stopped.
-	outcomeSuperseded = "superseded"
 )
 
 // withCommandTimeout runs one robot command bounded by commandTimeout.
@@ -377,7 +375,7 @@ func (s *Scheduler) tick(woke bool) {
 	if err != nil {
 		s.robotErr = err.Error()
 		s.warn("robot", "cannot read the robot: "+err.Error())
-		if r := s.run; r != nil && r.origin == originScheduler && s.robotState != nil {
+		if s.run != nil && s.robotState != nil {
 			// The robot cannot be read, but it may still take commands. Keep occupancy-aware routing working with
 			// what was last seen: the last state and the last room.
 			s.checkRouteAvailability(s.robotState, "", false)
@@ -717,8 +715,8 @@ func (s *Scheduler) startFailed(now time.Time, err error) {
 // run is a run being tracked.
 type run struct {
 	origin    string
-	treatment Treatment // "" for an external run that clears nothing, such as mop only
-	targets   []string  // in order; nil for an external run
+	treatment Treatment // "" for a resumed run that clears nothing, such as mop only
+	targets   []string  // in order; nil for a resumed run whose targets the robot did not report
 	startedAt time.Time
 	// leftDock is true once the robot was seen anywhere but docked. Until then "docked" means "not started yet".
 	leftDock bool
@@ -728,10 +726,9 @@ type run struct {
 	// stallErr is true once the robot reported an error in that stretch.
 	stallSince time.Time
 	stallErr   bool
-	// operationMode is the robot's operation mode when the run started. stopped is true once the robot was
-	// docked, idle, paused or in error after it last cleaned. Together they tell a new job from a resumed one.
-	operationMode string
-	stopped       bool
+	// partialRoom is the room a resumed run's robot was in when the run was found. Its battery drop was seen
+	// only in part, so no cost sample is learned for it.
+	partialRoom string
 
 	startBattery, lastBattery int
 	haveBattery               bool
@@ -766,7 +763,7 @@ type run struct {
 	fan      *quietFan
 	fanSpeed string
 
-	// route is every room on the planned way, dock to each target and back; nil for an external run. fenced
+	// route is every room on the planned way, dock to each target and back; nil without targets. fenced
 	// lists the doors the scheduler walled off before the run.
 	route  map[string]bool
 	fenced []string
@@ -778,18 +775,15 @@ func newRun(origin string, t Treatment, targets []string, now time.Time, st *val
 		doneSet: map[string]bool{}, roomDrop: map[string]float64{},
 		sampled: map[string]float64{},
 	}
-	if st != nil {
-		r.operationMode = st.Presets[valetudo.PresetOperationMode]
-		if st.HasBattery {
-			r.startBattery, r.lastBattery, r.haveBattery = st.Battery, st.Battery, true
-		}
+	if st != nil && st.HasBattery {
+		r.startBattery, r.lastBattery, r.haveBattery = st.Battery, st.Battery, true
 	}
 	return r
 }
 
-// externalTreatment is what a run someone else started does, from the robot's operation mode. Mop only
-// clears nothing: a full clean needs vacuum and mop.
-func externalTreatment(st *valetudo.State) Treatment {
+// modeTreatment is what a resumed run does, from the robot's operation mode. Mop only clears nothing: a full
+// clean needs vacuum and mop.
+func modeTreatment(st *valetudo.State) Treatment {
 	switch st.Presets[valetudo.PresetOperationMode] {
 	case "vacuum_and_mop":
 		return TreatmentFull
@@ -822,26 +816,16 @@ func (r *run) remaining() []string {
 
 // trackRun starts, follows and ends runs. The caller holds tickMu.
 func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
-	if r := s.run; r != nil && r.origin == originExternal && r.stopped && st.Status == valetudo.StatusCleaning &&
-		st.Presets[valetudo.PresetOperationMode] != r.operationMode {
-		// The robot stopped, and now cleans with another operation mode: a new job, such as another Valetudo
-		// timer. Its rooms must be judged by the new mode, so it is a new run.
-		s.finish(now, outcomeSuperseded, fmt.Sprintf("a new job started with operation mode %q after the robot "+
-			"stopped; this run had %q", st.Presets[valetudo.PresetOperationMode], r.operationMode))
+	if s.run == nil && st.Status != valetudo.StatusCleaning {
+		s.robotRoom = ""
+		return
 	}
+	room, posOK := s.locate()
 	if s.run == nil {
-		if st.Status != valetudo.StatusCleaning {
-			s.robotRoom = ""
-			return
-		}
-		s.run = newRun(originExternal, externalTreatment(st), nil, now, st)
-		s.logger.Info("Vacuum run started elsewhere; tracking it",
-			zap.String("treatment", string(s.run.treatment)),
-			zap.String("operation_mode", st.Presets[valetudo.PresetOperationMode]))
+		s.resumeRun(now, st, room, posOK)
 	}
 	r := s.run
 
-	room, posOK := s.locate()
 	if posOK && room != r.room {
 		s.logRoomChange(r, st, room)
 	}
@@ -854,12 +838,6 @@ func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
 
 	if st.Status != valetudo.StatusDocked {
 		r.leftDock = true
-	}
-	switch st.Status {
-	case valetudo.StatusCleaning:
-		r.stopped = false
-	case valetudo.StatusDocked, valetudo.StatusError, valetudo.StatusIdle, valetudo.StatusPaused:
-		r.stopped = true
 	}
 	if s.waterErrorNow && st.Status == valetudo.StatusError && r.treatment != TreatmentVacuum {
 		// The robot cannot mop without water. End at once, so the next run can vacuum.
@@ -902,10 +880,62 @@ func (s *Scheduler) trackRun(now time.Time, st *valetudo.State) {
 			return
 		}
 	}
-	if r.origin == originScheduler {
-		s.checkRouteAvailability(st, room, posOK)
-		s.steerFan(r, st, room, posOK)
+	s.checkRouteAvailability(st, room, posOK)
+	s.steerFan(r, st, room, posOK)
+}
+
+// resumeRun tracks a run the robot is in the middle of that this process did not start, such as after a
+// restart. The scheduler is the only thing that drives the robot, so the run is its own. Its targets are the
+// rooms whose segments the robot's map marks active, as a nearest-neighbour tour from the robot's room. Its
+// treatment follows the robot's operation mode. The caller holds tickMu.
+func (s *Scheduler) resumeRun(now time.Time, st *valetudo.State, room string, posOK bool) {
+	segments := s.activeSegments()
+	var items []PlanItem
+	for _, name := range s.cfg.RoomNames() {
+		if segments[s.cfg.Rooms[name].SegmentID] && s.graph.Has(name) {
+			items = append(items, PlanItem{Room: name})
+		}
 	}
+	start := s.dockRoom
+	if posOK && s.graph.Has(room) {
+		start = room
+	}
+	var targets []string
+	for _, it := range nearestNeighbour(s.graph, start, items) {
+		targets = append(targets, it.Room)
+	}
+	r := newRun(originResumed, modeTreatment(st), targets, now, st)
+	if posOK {
+		r.partialRoom = room
+	}
+	if len(targets) > 0 {
+		r.route, _ = plannedRoute(s.graph, s.dockRoom, targets)
+	}
+	s.run = r
+	fields := []zap.Field{zap.String("treatment", string(r.treatment)),
+		zap.String("operation_mode", st.Presets[valetudo.PresetOperationMode]), zap.Strings("targets", targets),
+		zap.String("robot_room", room)}
+	if len(targets) == 0 {
+		s.logger.Warn("Vacuum run in progress found, but the robot reports no target rooms; tracking it, and a "+
+			"room counts once the robot stays in it for min_dwell", fields...)
+		return
+	}
+	s.logger.Info("Vacuum run in progress found; tracking it as the scheduler's own", fields...)
+}
+
+// activeSegments reads the segment ids the robot's map marks active for the job in progress. It is empty when
+// the map cannot be read.
+func (s *Scheduler) activeSegments() map[string]bool {
+	out := map[string]bool{}
+	m, err := s.robot.Map(s.ctx)
+	if err != nil {
+		s.logger.Warn("Vacuum cannot read the robot map for the run in progress", zap.Error(err))
+		return out
+	}
+	for _, id := range m.ActiveSegments() {
+		out[id] = true
+	}
+	return out
 }
 
 // stallPoll reports whether a poll shows the run making no progress. The rule:
@@ -1040,7 +1070,7 @@ func (s *Scheduler) observe(r *run, now time.Time, st *valetudo.State, room stri
 		return
 	}
 	target := false
-	if r.origin == originScheduler {
+	if len(r.targets) > 0 {
 		for _, t := range r.targets {
 			target = target || t == room
 		}
@@ -1050,11 +1080,12 @@ func (s *Scheduler) observe(r *run, now time.Time, st *valetudo.State, room stri
 	if !target {
 		return
 	}
-	// The next room of our own tour counts once the robot has been in it for NextRoomDwell without going
-	// back to the room it cleans; blips to a neighbour or to no room in between do not restart the wait. The
-	// first room of the tour counts at once: no room is finished by it. Any other room, such as a room the
-	// robot drives through or a room of an external run, counts once the robot has stayed in it for MinDwell.
-	expected := r.origin == originScheduler && room == r.nextTarget()
+	// The next room of the tour counts once the robot has been in it for NextRoomDwell without going back to
+	// the room it cleans; blips to a neighbour or to no room in between do not restart the wait. The first
+	// room of the tour counts at once: no room is finished by it. Any other room, such as a target the robot
+	// reaches out of order, or any room of a resumed run without targets, counts once the robot has stayed in
+	// it for MinDwell.
+	expected := room == r.nextTarget()
 	switch {
 	case expected && r.current != "":
 		switch {
@@ -1111,7 +1142,7 @@ func (s *Scheduler) markDone(now time.Time, room string) {
 		s.dryVacuumed[room] = now
 	}
 	r.sampled[room] = r.roomDrop[room]
-	if len(cleared) > 0 && cleared[0] == r.treatment && r.positionSeen {
+	if len(cleared) > 0 && cleared[0] == r.treatment && r.positionSeen && room != r.partialRoom {
 		s.learnItem(itemKey{Room: room, Treatment: r.treatment}, r.roomDrop[room])
 	}
 	s.logger.Info("Vacuum finished room", zap.String("room", room), zap.String("origin", r.origin),
@@ -1133,10 +1164,11 @@ func (s *Scheduler) finish(now time.Time, outcome, reason string) {
 		if r.pending != "" {
 			s.markDone(now, r.pending)
 		}
+		// A resumed run saw only part of the battery drop, so it teaches no trip cost.
 		switch {
-		case r.origin == originScheduler && !r.positionSeen:
+		case len(r.targets) > 0 && !r.positionSeen:
 			s.finishWithoutPosition(now)
-		case r.positionSeen && len(r.done) > 0:
+		case r.positionSeen && len(r.done) > 0 && r.origin != originResumed:
 			trip := r.totalDrop
 			for _, room := range r.done {
 				trip -= r.sampled[room]
@@ -1166,8 +1198,9 @@ func (s *Scheduler) finish(now time.Time, outcome, reason string) {
 	s.lastPlanAt = time.Time{} // plan again right away
 }
 
-// finishWithoutPosition handles a completed run of ours when the map position never worked: every target
-// counts as done, and the battery drop beyond the trip is split by floor area.
+// finishWithoutPosition handles a completed run when the map position never worked: every target counts as
+// done, and the battery drop beyond the trip is split by floor area. A resumed run saw only part of the drop
+// and learns nothing from it.
 func (s *Scheduler) finishWithoutPosition(now time.Time) {
 	r := s.run
 	trip := s.tripCost()
@@ -1183,7 +1216,7 @@ func (s *Scheduler) finishWithoutPosition(now time.Time) {
 			continue
 		}
 		s.markDone(now, room)
-		if total > 0 && r.treatment != "" {
+		if total > 0 && r.treatment != "" && r.origin != originResumed {
 			s.learnItem(itemKey{Room: room, Treatment: r.treatment}, rest*s.graph.FloorArea(room)/total)
 		}
 	}
@@ -1230,12 +1263,13 @@ func (s *Scheduler) frameProblem(m *valetudo.Map) string {
 	return ""
 }
 
-// logRoomChange logs every room change of a tracked run, with whether the room is on our run's planned way.
-// A room that is neither on the way nor a target is off the route. The caller holds tickMu.
+// logRoomChange logs every room change of a tracked run, with whether the room is on the run's planned way.
+// A room that is neither on the way nor a target is off the route. A run without targets has no route. The
+// caller holds tickMu.
 func (s *Scheduler) logRoomChange(r *run, st *valetudo.State, room string) {
 	fields := []zap.Field{zap.String("room", room), zap.String("from", r.room), zap.String("origin", r.origin),
 		zap.String("status", st.Status), zap.String("flag", st.Flag)}
-	if r.origin != originScheduler {
+	if len(r.targets) == 0 {
 		s.logger.Info("Vacuum moved to another room", fields...)
 		return
 	}

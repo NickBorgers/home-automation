@@ -21,9 +21,9 @@ func (e *schedEnv) segmentCleans() int {
 	return n
 }
 
-// externalRunInKitchen starts a run elsewhere in the given operation mode and lets the robot clean the
-// kitchen long enough for it to be the current room.
-func (e *schedEnv) externalRunInKitchen(mode string) {
+// resumedRunInKitchen finds a run in progress in the given operation mode, with no active segments, and lets
+// the robot clean the kitchen long enough for it to be the current room.
+func (e *schedEnv) resumedRunInKitchen(mode string) {
 	e.t.Helper()
 	e.start()
 	e.tick()
@@ -51,7 +51,7 @@ func TestSchedulerStallTimeoutBoundary(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newSchedEnv(t, ModeLogOnly)
-			e.externalRunInKitchen("vacuum_and_mop")
+			e.resumedRunInKitchen("vacuum_and_mop")
 			e.robot.SetStatus(tt.status, tt.flag)
 			e.robot.SetBattery(90)
 			e.tick() // the stall begins
@@ -73,7 +73,7 @@ func TestSchedulerStallTimeoutBoundary(t *testing.T) {
 // A shorter stall_timeout from the config is used.
 func TestSchedulerStallTimeoutFromConfig(t *testing.T) {
 	e := newSchedEnv(t, ModeLogOnly, func(cfg *SchedulerConfig, _ *housemap.Map) { cfg.StallTimeout = 5 * time.Minute })
-	e.externalRunInKitchen("vacuum")
+	e.resumedRunInKitchen("vacuum")
 	e.robot.SetStatus("error", "none")
 	e.tick()
 	e.advance(5 * time.Minute)
@@ -84,7 +84,7 @@ func TestSchedulerStallTimeoutFromConfig(t *testing.T) {
 // Progress resets the stall clock: two short errors with cleaning in between do not add up.
 func TestSchedulerStallClockResetsOnProgress(t *testing.T) {
 	e := newSchedEnv(t, ModeLogOnly)
-	e.externalRunInKitchen("vacuum_and_mop")
+	e.resumedRunInKitchen("vacuum_and_mop")
 	e.robot.SetStatus("error", "none")
 	e.tick()
 	e.advance(20 * time.Minute)
@@ -143,7 +143,7 @@ func TestSchedulerMopWashAndRechargeDoNotStall(t *testing.T) {
 // An error that leaves the robot on its dock with the job still resumable keeps counting as a stall.
 func TestSchedulerErrorThenDockedResumableStalls(t *testing.T) {
 	e := newSchedEnv(t, ModeLogOnly)
-	e.externalRunInKitchen("vacuum_and_mop")
+	e.resumedRunInKitchen("vacuum_and_mop")
 	e.robot.SetStatus("error", "none")
 	e.tick()
 	e.advance(10 * time.Minute)
@@ -176,13 +176,11 @@ func TestSchedulerSafetyPauseDoesNotStall(t *testing.T) {
 	assert.Equal(t, []string{cmdHome}, e.commandPaths())
 }
 
-// After the robot stopped, a new job with another operation mode is a new run, even well within
-// stall_timeout. The same mode after a stop is the same job going on.
-func TestSchedulerModeChangeWhileDockedSplitsRuns(t *testing.T) {
+// A recharge in the middle of a job is the same run going on.
+func TestSchedulerRechargeKeepsRun(t *testing.T) {
 	e := newSchedEnv(t, ModeLogOnly)
-	e.externalRunInKitchen("vacuum")
+	e.resumedRunInKitchen("vacuum")
 
-	t.Log("a recharge in the same mode is the same run")
 	e.robot.SetStatus("docked", "resumable")
 	e.moveTo("mud", 90)
 	e.advance(30 * time.Second)
@@ -193,41 +191,6 @@ func TestSchedulerModeChangeWhileDockedSplitsRuns(t *testing.T) {
 	require.NotNil(t, e.sched().Run)
 	assert.Nil(t, e.sched().LastRun)
 	assert.Equal(t, "kitchen", e.sched().Run.Current)
-
-	t.Log("the robot stops; someone switches to vacuum_and_mop and starts the office")
-	e.robot.SetStatus("docked", "resumable")
-	e.moveTo("mud", 89)
-	e.advance(30 * time.Second)
-	e.robot.SetPreset("operation_mode", "vacuum_and_mop")
-	e.advance(30 * time.Second)
-	require.NotNil(t, e.sched().Run, "a mode change alone ends nothing")
-	e.robot.SetStatus("cleaning", "segment")
-	e.moveTo("office", 100)
-	e.advance(30 * time.Second)
-
-	last := e.sched().LastRun
-	require.NotNil(t, last)
-	assert.Equal(t, "superseded", last.Outcome)
-	assert.Contains(t, last.EndReason, `operation mode "vacuum_and_mop"`)
-	assert.Equal(t, "vacuum", last.Treatment)
-	assert.Empty(t, last.Done, "the kitchen, where it stopped, is unfinished")
-	assert.False(t, e.cleanedAt(itemKey{"kitchen", TreatmentVacuum}).After(schedT0))
-	run := e.sched().Run
-	require.NotNil(t, run, "the new job is tracked at once")
-	assert.Equal(t, "full", run.Treatment)
-	assert.Equal(t, 100, run.StartBattery)
-
-	for i := 0; i < 5; i++ {
-		e.moveTo("office", 99-i)
-		e.advance(30 * time.Second)
-	}
-	e.robot.SetStatus("docked", "none")
-	e.moveTo("mud", 94)
-	e.advance(30 * time.Second)
-	e.advance(30 * time.Second)
-	assert.Equal(t, "completed", e.sched().LastRun.Outcome)
-	assert.Equal(t, []string{"office"}, e.sched().LastRun.Done)
-	assert.True(t, e.cleanedAt(itemKey{"office", TreatmentFull}).After(schedT0), "full clean of the office")
 }
 
 // Our own run in active mode ends in error. The scheduler may plan again, but the planner needs a docked

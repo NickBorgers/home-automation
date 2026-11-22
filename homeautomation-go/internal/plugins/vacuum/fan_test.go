@@ -307,8 +307,8 @@ func TestQuietTravelNoFrameIsOff(t *testing.T) {
 	assert.False(t, e.sched().Run.QuietTravel)
 }
 
-func TestQuietTravelExternalRunAndLogOnlySendNoFan(t *testing.T) {
-	t.Run("external run in active mode", func(t *testing.T) {
+func TestQuietTravelResumedRunAndLogOnlySendNoFan(t *testing.T) {
+	t.Run("resumed run in active mode", func(t *testing.T) {
 		e := newSchedEnv(t, ModeActive, quietTravel)
 		e.start()
 		e.tick()
@@ -318,7 +318,7 @@ func TestQuietTravelExternalRunAndLogOnlySendNoFan(t *testing.T) {
 			e.step(room, 90)
 		}
 		require.NotNil(t, e.sched().Run)
-		assert.Equal(t, "external", e.sched().Run.Origin)
+		assert.Equal(t, "resumed", e.sched().Run.Origin)
 		assert.False(t, e.sched().Run.QuietTravel)
 		assert.Equal(t, 30*time.Second, e.interval())
 		assert.Empty(t, e.robot.Commands())

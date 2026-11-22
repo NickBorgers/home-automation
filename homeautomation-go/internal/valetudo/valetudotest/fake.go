@@ -31,6 +31,7 @@ type Robot struct {
 	robot     *[2]float64
 	charger   *[2]float64
 	segments  map[string]string   // id -> name
+	active    map[string]bool     // segment ids of the current job, as the map's metaData.active reports
 	presetSet map[string][]string // capability -> preset names its presets endpoint lists
 	commands  []Command
 	fail      map[string]int // path -> HTTP status to answer with
@@ -56,6 +57,7 @@ func New() *Robot {
 		presets:      map[string]string{},
 		pixelSize:    5,
 		segments:     map[string]string{},
+		active:       map[string]bool{},
 		presetSet:    map[string][]string{},
 		fail:         map[string]int{},
 		restrictions: map[string]any{"virtualWalls": []any{}, "restrictedZones": []any{}},
@@ -141,6 +143,25 @@ func (r *Robot) AddSegment(id, name string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.segments[id] = name
+}
+
+// SetActiveSegments sets which segment layers the map marks active, as for a job in progress. A segment the
+// map lacks gets a layer named after its id.
+func (r *Robot) SetActiveSegments(ids ...string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.setActive(ids)
+}
+
+// setActive marks exactly ids active. The caller holds mu.
+func (r *Robot) setActive(ids []string) {
+	r.active = map[string]bool{}
+	for _, id := range ids {
+		r.active[id] = true
+		if _, has := r.segments[id]; !has {
+			r.segments[id] = id
+		}
+	}
 }
 
 // Fail makes every request to path answer with an HTTP status. 0 stops failing.
@@ -265,7 +286,8 @@ func (r *Robot) serve(w http.ResponseWriter, req *http.Request) {
 		var layers []map[string]any
 		for id, name := range r.segments {
 			layers = append(layers, map[string]any{"__class": "MapLayer", "type": "segment",
-				"metaData": map[string]any{"segmentId": id, "name": name}, "compressedPixels": []int{0, 0, 1}})
+				"metaData":         map[string]any{"segmentId": id, "name": name, "active": r.active[id]},
+				"compressedPixels": []int{0, 0, 1}})
 		}
 		writeJSON(w, map[string]any{"__class": "ValetudoMap", "pixelSize": r.pixelSize, "layers": layers,
 			"entities": entities})
@@ -318,6 +340,15 @@ func (r *Robot) apply(path string, body map[string]any) {
 		}
 	case strings.HasSuffix(path, "/MapSegmentationCapability"):
 		r.status, r.flag = "cleaning", "segment"
+		// Like Valetudo, the map marks the job's segments active.
+		var ids []string
+		list, _ := body["segment_ids"].([]any)
+		for _, id := range list {
+			if sid, ok := id.(string); ok {
+				ids = append(ids, sid)
+			}
+		}
+		r.setActive(ids)
 	case strings.HasSuffix(path, "/BasicControlCapability"):
 		switch body["action"] {
 		case "home":
