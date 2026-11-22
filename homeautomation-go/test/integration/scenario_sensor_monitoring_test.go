@@ -320,7 +320,7 @@ func TestScenario_Environmental_WaterLeakDetection(t *testing.T) {
 
 	foundWaterLeakNotification := false
 	for _, call := range calls {
-		if call.Title == "Water Leak Detected" {
+		if call.Title == "Water leak" {
 			foundWaterLeakNotification = true
 			assert.Equal(t, ntfy.PriorityUrgent, call.Priority,
 				"Water leak notification should be urgent priority")

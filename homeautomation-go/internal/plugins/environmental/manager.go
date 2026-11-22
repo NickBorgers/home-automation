@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -68,6 +69,7 @@ type WaterLeakSensor struct {
 	EntityID     string
 	DeviceID     string
 	FriendlyName string
+	DeviceName   string // Home Assistant device name (name_by_user, else name); may be empty
 	State        string // "on" = leak, "off" = no leak
 	LastChanged  time.Time
 	// Track if we've sent notification for current leak
@@ -411,6 +413,14 @@ func (m *Manager) discoverWaterLeakSensors() error {
 	}
 
 	labelChecker := ha.NewDeviceLabelChecker(devices)
+	deviceNames := make(map[string]string, len(devices))
+	for _, d := range devices {
+		if d.NameByUser != "" {
+			deviceNames[d.ID] = d.NameByUser
+		} else {
+			deviceNames[d.ID] = d.Name
+		}
+	}
 
 	// Create sensor structs and subscribe
 	m.mu.Lock()
@@ -434,6 +444,7 @@ func (m *Manager) discoverWaterLeakSensors() error {
 			EntityID:     state.EntityID,
 			DeviceID:     deviceID,
 			FriendlyName: friendlyName,
+			DeviceName:   deviceNames[deviceID],
 			State:        state.State,
 			LastChanged:  state.LastChanged,
 		}
@@ -644,9 +655,31 @@ func (m *Manager) evaluateWaterLeaks() {
 	}
 }
 
+var (
+	leakSensorSuffix   = regexp.MustCompile(`(?i)\s+(water\s+leak\s+sensor|leak\s+sensor|water\s+leak|sensor)$`)
+	leakDetectedSuffix = regexp.MustCompile(`(?i)\s+water\s+leak\s+detected$`)
+)
+
+// waterLeakLocation returns a short place name for a leak sensor. It prefers the device name,
+// then the friendly name, then the entity ID. Trailing "Water Leak Sensor" style words are removed.
+func waterLeakLocation(sensor *WaterLeakSensor) string {
+	name := strings.TrimSpace(sensor.DeviceName)
+	if name == "" {
+		name = strings.TrimSpace(leakDetectedSuffix.ReplaceAllString(strings.TrimSpace(sensor.FriendlyName), ""))
+	}
+	if stripped := strings.TrimSpace(leakSensorSuffix.ReplaceAllString(name, "")); stripped != "" {
+		return stripped
+	}
+	if name != "" && name != sensor.EntityID {
+		return name
+	}
+	return sensor.EntityID
+}
+
 // sendWaterLeakNotification sends a notification for a water leak
 func (m *Manager) sendWaterLeakNotification(sensor *WaterLeakSensor) {
-	message := fmt.Sprintf("Water leak detected at %s", sensor.FriendlyName)
+	location := waterLeakLocation(sensor)
+	message := fmt.Sprintf("Water leak at the %s.", location)
 
 	m.logger.Warn("Water leak detected",
 		zap.String("entity_id", sensor.EntityID),
@@ -674,8 +707,9 @@ func (m *Manager) sendWaterLeakNotification(sensor *WaterLeakSensor) {
 	}
 
 	if err := m.alerter.Send(context.Background(), alert.Alert{
-		Title:    "Water Leak Detected",
-		Body:     message,
+		Title:    "Water leak",
+		Body:     fmt.Sprintf("Leak at the %s", location),
+		Speech:   message,
 		Urgency:  notify.UrgencyUrgent,
 		Tags:     []string{"warning", "droplet"},
 		Priority: ntfy.PriorityUrgent,

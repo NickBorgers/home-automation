@@ -49,6 +49,10 @@ type MockHAServer struct {
 
 	currentUserID string // Returned by auth/current_user: the user that owns the app's token
 	userMu        sync.RWMutex
+
+	entityRegistry json.RawMessage // Returned by config/entity_registry/list; empty list when nil
+	deviceRegistry json.RawMessage // Returned by config/device_registry/list; empty list when nil
+	registryMu     sync.RWMutex
 }
 
 // ConfigEntryReload records a config_entries/reload request received by the mock.
@@ -215,6 +219,18 @@ func (s *MockHAServer) SetCurrentUserID(userID string) {
 	s.currentUserID = userID
 }
 
+// SetRegistries sets what the entity and device registry list requests return.
+// Each argument is a list of registry entries, in Home Assistant's JSON shape.
+// Call it before the plugin under test starts.
+func (s *MockHAServer) SetRegistries(entities, devices []map[string]interface{}) {
+	e, _ := json.Marshal(entities)
+	d, _ := json.Marshal(devices)
+	s.registryMu.Lock()
+	defer s.registryMu.Unlock()
+	s.entityRegistry = e
+	s.deviceRegistry = d
+}
+
 // SetStateWithContext sets a state with the given change context and
 // broadcasts the change event. A nil context sends no context.
 func (s *MockHAServer) SetStateWithContext(entityID, state string, attributes map[string]interface{}, ctx *StateContext) {
@@ -365,9 +381,9 @@ func (s *MockHAServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		case "ping":
 			s.handlePing(wrapper, msg)
 		case "config/entity_registry/list":
-			s.handleRegistryList(wrapper, msg)
+			s.handleRegistryList(wrapper, msg, false)
 		case "config/device_registry/list":
-			s.handleRegistryList(wrapper, msg)
+			s.handleRegistryList(wrapper, msg, true)
 		case "config_entries/reload":
 			s.handleConfigEntryReload(wrapper, msg)
 		case "auth/current_user":
@@ -401,9 +417,9 @@ func (s *MockHAServer) handleCurrentUser(wrapper *connWrapper, msg json.RawMessa
 }
 
 // handleRegistryList handles config/entity_registry/list and config/device_registry/list requests.
-// Returns an empty list so plugins that discover sensors via the registry fail fast instead of
-// waiting 10 seconds for a timeout. This keeps DEV_MODE startup time short.
-func (s *MockHAServer) handleRegistryList(wrapper *connWrapper, msg json.RawMessage) {
+// Returns an empty list unless SetRegistries supplied one, so plugins that discover sensors via the
+// registry fail fast instead of waiting 10 seconds for a timeout. This keeps DEV_MODE startup time short.
+func (s *MockHAServer) handleRegistryList(wrapper *connWrapper, msg json.RawMessage, devices bool) {
 	var req struct {
 		ID int `json:"id"`
 	}
@@ -413,6 +429,13 @@ func (s *MockHAServer) handleRegistryList(wrapper *connWrapper, msg json.RawMess
 
 	success := true
 	emptyList := json.RawMessage(`[]`)
+	s.registryMu.RLock()
+	if devices && s.deviceRegistry != nil {
+		emptyList = s.deviceRegistry
+	} else if !devices && s.entityRegistry != nil {
+		emptyList = s.entityRegistry
+	}
+	s.registryMu.RUnlock()
 	wrapper.writeMu.Lock()
 	wrapper.conn.WriteJSON(Message{
 		ID:      req.ID,
