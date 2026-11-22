@@ -320,3 +320,135 @@ func TestLux_HoldCheckCancelledWhenEveryoneLeaves(t *testing.T) {
 	// THEN: the stale check does not hold the room
 	assert.False(t, f.manager.luxHeld(f.room))
 }
+
+// User story: "The lights change color on their own. I did not touch them, so the system must
+// keep following the curve."
+//
+// Invariant: a color temperature report is judged like a brightness report. While a commanded
+// transition is still running, a report within the range the fades pass through does not hold
+// the room. The check waits for the fade to end and then compares the light with the final
+// commanded values. A jump far off the fades, or a change after the fade, still holds.
+//
+// Regression: after a reset the plugin sent a color fade, and 25 s later a second color fade that
+// overlapped it. Near the end of the second fade the group reported a color a little behind the
+// modeled path. The confirming read 5 s later showed the same value, so the room was held while
+// the fade still had seconds to run.
+
+// overlappingColorFades installs the commands the loop sends after a reset: a 60 s fade from the
+// adopted 99% at 4000 K to 3600 K, and 25 s later a second 60 s fade to 3200 K that starts where
+// the loop expects the first one to be (about 3833 K). The second fade ends 85 s after the first
+// command.
+func overlappingColorFades(t *testing.T) (*luxFixture, time.Time) {
+	t.Helper()
+	f := newLuxFixture(t, LuxModeActive, false)
+	t0 := f.clock.Now()
+	first := &luxCommand{at: t0, transition: luxTransition, on: true, pct: 99, kelvin: 3600,
+		fromOn: true, fromPct: 99, fromKelvin: 4000}
+	second := &luxCommand{at: t0.Add(25 * time.Second), transition: luxTransition, on: true, pct: 99, kelvin: 3200,
+		fromOn: true}
+	second.fromPct, second.fromKelvin = first.levelAt(second.at)
+	f.manager.luxMu.Lock()
+	st := f.manager.luxRoom(f.room.HueGroup)
+	st.cmd = first
+	f.manager.luxMu.Unlock()
+	f.env.MockHA.SetState(luxTestCans, "on", map[string]interface{}{"brightness": 252.0, "color_temp_kelvin": 4000.0})
+
+	f.clock.Advance(25 * time.Second)
+	f.manager.luxMu.Lock()
+	st.previous, st.cmd = first, second
+	f.manager.luxMu.Unlock()
+	return f, t0
+}
+
+// colorReport is one color temperature report from the cans at 99%, at an offset from the first
+// command. Home Assistant keeps it as the light's state until the next one.
+type colorReport struct {
+	at     time.Duration
+	kelvin float64
+}
+
+// replayColorReports moves the clock to each report, stores it in Home Assistant and delivers it.
+func replayColorReports(f *luxFixture, t0 time.Time, reports []colorReport) {
+	for _, r := range reports {
+		f.clock.Advance(t0.Add(r.at).Sub(f.clock.Now()))
+		s := canReport("on", 252, r.kelvin)
+		f.env.MockHA.SetState(luxTestCans, s.State, s.Attributes)
+		f.manager.handleCansChange(f.room, s)
+	}
+}
+
+func TestScenario_UserStory_ColorBehindOverlappingFadesDoesNotHold(t *testing.T) {
+	t.Parallel()
+	// GIVEN: overlapping color fades, 4000 K -> 3600 K and then -> 3200 K, ending at 85 s
+	t.Log("GIVEN: the plugin sent overlapping color fades to 3600 K and then 3200 K")
+	f, t0 := overlappingColorFades(t)
+
+	// WHEN: 78 s in, the group reports 3365 K, a little behind the modeled path (about 3284 K).
+	// The confirming read 5 s later shows the same value. The light reaches 3200 K as the fade ends.
+	t.Log("WHEN: the cans report 3365 K near the end of the fade, unchanged on the next read, then 3200 K")
+	replayColorReports(f, t0, []colorReport{{78 * time.Second, 3365}})
+	f.manager.luxMu.Lock()
+	checking := f.manager.luxRoom(f.room.HueGroup).checking != nil
+	f.manager.luxMu.Unlock()
+	require.True(t, checking, "the report is off the modeled path, so it is checked")
+	f.clock.Advance(t0.Add(83 * time.Second).Sub(f.clock.Now())) // the first confirming read: still 3365 K
+	assert.False(t, f.manager.luxHeld(f.room), "the fade is still running")
+	replayColorReports(f, t0, []colorReport{{86 * time.Second, 3200}})
+	for i := 0; i < luxHoldConfirmReads; i++ {
+		f.clock.Advance(luxHoldConfirmDelay)
+	}
+
+	// THEN: the room is not held, and the loop keeps following the curve
+	t.Log("THEN: the room is not held")
+	assert.False(t, f.manager.luxHeld(f.room), "nobody touched the lights")
+	f.clock.Advance(time.Minute)
+	f.manager.luxTick()
+	assert.NotContains(t, f.decision(), "held")
+	assert.NotContains(t, f.decision(), "checking")
+}
+
+func TestScenario_UserStory_ManualColorChangeDuringOrAfterOverlappingFadesHolds(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		at   time.Duration
+		// kelvin is the color a person sets and leaves.
+		kelvin float64
+		// holdBy is the latest offset from the first command at which the room must be held.
+		holdBy time.Duration
+	}{
+		// Far outside any color the fades pass through: held on the first confirming read, while
+		// the fade still runs.
+		{"warm color set mid-fade", 50 * time.Second, 2200, 55 * time.Second},
+		{"cool color set mid-fade", 50 * time.Second, 5000, 55 * time.Second},
+		// Within the fades' range while the fade runs: held once the fade has ended and the light
+		// still differs from the final commanded 3200 K.
+		{"color a little off set mid-fade", 65 * time.Second, 3800, 95 * time.Second},
+		// After the fade: the same value as the regression's report is a person's change.
+		{"color changed after the fade", 120 * time.Second, 3365, 125 * time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			// GIVEN: overlapping color fades to 3600 K and then 3200 K
+			t.Log("GIVEN: the plugin sent overlapping color fades")
+			f, t0 := overlappingColorFades(t)
+
+			// WHEN: a person sets a color and leaves it
+			t.Logf("WHEN: a person sets %.0f K %s after the first command", tt.kelvin, tt.at)
+			replayColorReports(f, t0, []colorReport{{tt.at, tt.kelvin}})
+			f.env.MockHA.ClearServiceCalls()
+			f.manager.luxTick()
+			assert.Empty(t, f.lightCalls(), "no command while the change is being confirmed")
+			f.clock.Advance(t0.Add(tt.holdBy).Sub(f.clock.Now()))
+
+			// THEN: the room is held in time, and later ticks leave the cans alone
+			t.Log("THEN: the room is held")
+			assert.True(t, f.manager.luxHeld(f.room), "a person's change must hold the room")
+			f.clock.Advance(time.Minute)
+			f.manager.luxTick()
+			assert.Empty(t, f.lightCalls())
+			assert.Contains(t, f.decision(), "held")
+		})
+	}
+}

@@ -48,6 +48,11 @@ const (
 	// luxHoldConfirmReads is the most re-reads made after the fade has ended while the cans are
 	// still moving. When the last one is still off the fade path, the room is held.
 	luxHoldConfirmReads = 4
+	// luxFadeSettleMargin is how long after the latest commanded transition ends the cans may still
+	// be settling. Until then an off-path report that lies within the range the running fades span
+	// is not held: a group's brightness or color can lag a fade, most of all when fades overlap.
+	// The confirmation waits and then compares the light with the final commanded values.
+	luxFadeSettleMargin = 5 * time.Second
 )
 
 // luxCommand is the last command sent (or, in log_only/READ_ONLY mode, that would be sent) to a room's cans.
@@ -761,8 +766,11 @@ func (m *Manager) scheduleLuxHoldCheck(room *RoomConfig, st *luxRoomState, check
 // fade path, the report was a late one from the plugin's own fade, and nothing is held. Still off
 // the path and steady, it is a person's change, and the room is held. Still off the path but
 // moving, the light may be lagging the fade or settling, so it reads again: as often as needed
-// while the fade runs, then up to luxHoldConfirmReads times. When the read fails, the first
-// report decides, so a person's change is not lost.
+// while the fade runs, then up to luxHoldConfirmReads times. While the latest transition (plus
+// luxFadeSettleMargin) is still running, a read within the range the fades span is not held; the
+// check waits and then compares the light with the final commanded values. A jump outside that
+// range is decided at once. When the read fails, the first report decides, so a person's change
+// is not lost.
 func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
 	s, err := m.haClient.GetState(room.LuxControl.Cans)
 	action, _ := m.evaluateConditions(room)
@@ -781,7 +789,8 @@ func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
 	}
 	reason := check.reason
 	if err == nil && s != nil {
-		if !now.Before(st.cmd.at.Add(st.cmd.transition)) {
+		settled := luxFadeSettled(st.cmd, now)
+		if settled {
 			check.reads++ // a group may lag a running fade by several seconds, so only reads after it count
 		}
 		if reason = cansChangeReason(room, st, s, now); reason == "" {
@@ -792,6 +801,14 @@ func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
 			if skipped {
 				m.luxEvaluate(room, "hold check cleared")
 			}
+			return
+		}
+		if s.State == "on" && !settled && withinRunningFades(st, s, room.LuxControl.HasColorTemp()) {
+			// The fade is still running and the light is somewhere the fades pass through. Wait
+			// for the fade to end before deciding. A jump outside that range is decided below.
+			check.last = s
+			m.scheduleLuxHoldCheck(room, st, check)
+			m.luxMu.Unlock()
 			return
 		}
 		if s.State == "on" && check.reads < luxHoldConfirmReads && luxReportMoved(check.last, s) {
@@ -807,6 +824,66 @@ func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
 		zap.String("room", room.HueGroup),
 		zap.String("reason", reason))
 	m.setLuxHoldHelper(room, true)
+}
+
+// luxFadeSettled reports whether the latest command's transition, plus luxFadeSettleMargin, has ended.
+func luxFadeSettled(cmd *luxCommand, now time.Time) bool {
+	return !now.Before(cmd.at.Add(cmd.transition + luxFadeSettleMargin))
+}
+
+// withinRunningFades reports whether a report lies within the range of brightness, and of color
+// temperature, that the running fades pass through, with the normal tolerance. The range runs
+// from each fade's start to its target. It covers the latest command, and the previous one when
+// the latest was sent before the previous fade ended, since overlapping fades blend on the light.
+// A report outside it is far off any fade, so it is not a light lagging the fade.
+// Caller must hold luxMu.
+func withinRunningFades(st *luxRoomState, s *ha.State, colorTemp bool) bool {
+	cmds := []*luxCommand{st.cmd}
+	if p := st.previous; p != nil && st.cmd.at.Before(p.at.Add(p.transition)) {
+		cmds = append(cmds, p)
+	}
+	if b, ok := numberAttr(s.Attributes, "brightness"); ok {
+		var ends []float64
+		for _, c := range cmds {
+			from, to := 0.0, 0.0
+			if c.fromOn {
+				from = c.fromPct
+			}
+			if c.on {
+				to = c.pct
+			}
+			ends = append(ends, from, to)
+		}
+		if !withinRange(b/255*100, ends, manualBrightnessTolerance) {
+			return false
+		}
+	}
+	if !colorTemp {
+		return true
+	}
+	if k, ok := numberAttr(s.Attributes, "color_temp_kelvin"); ok {
+		var ends []float64
+		for _, c := range cmds {
+			for _, v := range []int{c.fromKelvin, c.kelvin} {
+				if v != 0 { // 0 is an unknown color temperature
+					ends = append(ends, float64(v))
+				}
+			}
+		}
+		if len(ends) > 0 && !withinRange(k, ends, manualKelvinTolerance) {
+			return false
+		}
+	}
+	return true
+}
+
+// withinRange reports whether v lies between the smallest and largest of ends, give or take tolerance.
+func withinRange(v float64, ends []float64, tolerance float64) bool {
+	lo, hi := math.Inf(1), math.Inf(-1)
+	for _, e := range ends {
+		lo, hi = math.Min(lo, e), math.Max(hi, e)
+	}
+	return v >= lo-tolerance && v <= hi+tolerance
 }
 
 // luxReportMoved reports whether brightness or color temperature changed between two reports by
