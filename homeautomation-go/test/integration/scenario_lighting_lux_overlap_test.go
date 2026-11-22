@@ -195,7 +195,9 @@ func TestScenario_LuxFadeUpOverlapGuardEndsAfter31Seconds(t *testing.T) {
 	require.False(t, held())
 
 	// WHEN/THEN: outside the window, hold detection resumes.
-	t.Log("WHEN: a manual color is reported just after T+31s")
+	// Both brightness (115 ≈ 45%, below command B's target) and color_temp (6500K vs 4000K) diverge
+	// from the automation's expected state — either dimension is sufficient to trigger the hold.
+	t.Log("WHEN: a report with diverged brightness and color arrives just after T+31s")
 	mockClock.AdvanceAndProcess(47 * time.Millisecond)
 	server.SetState("light.living_cans", "on", map[string]interface{}{
 		"brightness":        115.0,
