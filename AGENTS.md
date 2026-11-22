@@ -239,6 +239,10 @@ Many devices carry the Home Assistant label `monitoring_ignore`. It turns off ba
 water-leak monitoring for that device. **When code starts to read a sensor, run the `monitoring-coverage`
 skill** (`.claude/skills/monitoring-coverage/SKILL.md`). It checks that the sensor's device is monitored.
 
+**When someone pairs, renames or checks a Z-Wave sensor, run the `zwave-sensor-setup` skill**
+(`.claude/skills/zwave-sensor-setup/SKILL.md`). It covers naming, the battery report threshold, the restart
+and an end-to-end test.
+
 ### Documentation Maintenance
 
 Update docs when making changes:
