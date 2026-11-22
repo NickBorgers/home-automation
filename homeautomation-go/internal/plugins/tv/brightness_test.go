@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"testing"
 	"time"
@@ -145,6 +146,11 @@ func TestApplyBrightness(t *testing.T) {
 			wantDecision: "applied", wantTV: "TV screen not ready", wantSync: "set 100", wantSyncCalls: 1,
 		},
 		{
+			name: "brightness read EOF", lux: 150,
+			pic:          &fakePicture{getErr: io.EOF},
+			wantDecision: "applied", wantTV: "read failed: EOF", wantSync: "set 100", wantSyncCalls: 1,
+		},
+		{
 			name: "TV set fails", lux: 150,
 			pic:          &fakePicture{setting: bravia.Setting{Current: 25, Max: 50}, setErr: errors.New("boom")},
 			wantDecision: "applied", wantTV: "send failed: boom", wantSync: "set 100", wantSyncCalls: 1,
@@ -194,9 +200,9 @@ func TestApplyBrightness(t *testing.T) {
 }
 
 func TestBrightnessOnPowerOn_StaleGoroutineDoesNotClearHold(t *testing.T) {
-	// GIVEN: G1 goroutine launched, then TV turns on again (G2 launched, superseding G1).
-	// Between G1 and G2 waking, a manual change sets the hold.
-	// THEN: G1 must exit without touching state; G2 clears the hold as expected.
+	// GIVEN: G1 is waiting when the current session gets a manual hold.
+	// WHEN: an off transition clears the session and a new on transition launches G2.
+	// THEN: G1 must exit without touching the fresh state; G2 applies the target.
 	pic := &fakePicture{setting: bravia.Setting{Current: 25, Max: 50}}
 	m, _ := newBrightnessManager(t, false, 150, pic)
 
@@ -218,11 +224,9 @@ func TestBrightnessOnPowerOn_StaleGoroutineDoesNotClearHold(t *testing.T) {
 	m.applyBrightness("first")
 	require.Equal(t, []int{50}, pic.sets)
 
-	// TV on twice quickly: G1 (gen=1) then G2 (gen=2).
+	// The first power-on apply waits while a manual change is detected.
 	m.SetBrightnessPowerOnDelay(g1Delay)
 	m.brightnessOnPowerOn() // G1
-	m.SetBrightnessPowerOnDelay(g2Delay)
-	m.brightnessOnPowerOn() // G2
 
 	// A person changes brightness: manual hold detected.
 	pic.mu.Lock()
@@ -231,23 +235,32 @@ func TestBrightnessOnPowerOn_StaleGoroutineDoesNotClearHold(t *testing.T) {
 	m.applyBrightness("manual_detected")
 	require.True(t, m.GetShadowState().Outputs.Brightness.TV.Held, "must be held before G1 fires")
 
-	// Wait for both goroutines to be blocked in sleep.
+	// Wait for G1 to be blocked, then end that session and start the next one.
 	require.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return len(sleepGates) == 2
-	}, 2*time.Second, 5*time.Millisecond, "both goroutines must reach sleep")
+		return sleepGates[g1Delay] != nil
+	}, 2*time.Second, 5*time.Millisecond, "G1 must reach sleep")
+	m.brightnessOnPowerOff("standby")
+	require.False(t, m.GetShadowState().Outputs.Brightness.TV.Held, "off must clear the hold immediately")
+	m.SetBrightnessPowerOnDelay(g2Delay)
+	m.brightnessOnPowerOn() // G2
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return sleepGates[g2Delay] != nil
+	}, 2*time.Second, 5*time.Millisecond, "G2 must reach sleep")
 
-	// Wake G1 — it must detect it is superseded and not clear the hold.
+	// Wake G1 — it must detect it is superseded and not apply anything.
 	mu.Lock()
 	g1 := sleepGates[g1Delay]
 	mu.Unlock()
 	close(g1)
 	// Give G1 time to run to completion.
 	time.Sleep(100 * time.Millisecond)
-	require.True(t, m.GetShadowState().Outputs.Brightness.TV.Held, "G1 must not clear the manual hold")
+	require.Equal(t, []int{50, 40}, pic.sets, "G1 must not write into the new session")
 
-	// Wake G2 — it is the authoritative power-on; hold clears and brightness is set.
+	// Wake G2 — it is the authoritative power-on and sets the brightness.
 	mu.Lock()
 	g2 := sleepGates[g2Delay]
 	mu.Unlock()
@@ -255,11 +268,11 @@ func TestBrightnessOnPowerOn_StaleGoroutineDoesNotClearHold(t *testing.T) {
 	require.Eventually(t, func() bool {
 		pic.mu.Lock()
 		defer pic.mu.Unlock()
-		return len(pic.sets) == 2 && pic.sets[1] == 50
+		return len(pic.sets) == 3 && pic.sets[2] == 50
 	}, 2*time.Second, 10*time.Millisecond, "G2 must set brightness after clearing hold")
 }
 
-func TestApplyBrightness_ManualChangeHoldsUntilPowerOn(t *testing.T) {
+func TestApplyBrightness_ManualChangeHoldsUntilPowerOff(t *testing.T) {
 	pic := &fakePicture{setting: bravia.Setting{Current: 25, Max: 50}}
 	m, mockHA := newBrightnessManager(t, false, 150, pic)
 	m.SetBrightnessPowerOnDelay(0)
@@ -279,15 +292,20 @@ func TestApplyBrightness_ManualChangeHoldsUntilPowerOn(t *testing.T) {
 	got := m.GetShadowState().Outputs.Brightness
 	assert.True(t, got.TV.Held)
 	assert.Equal(t, "found 40, last set 50", got.TV.HeldReason)
-	assert.Equal(t, []int{50}, pic.sets, "no write while held")
+	assert.Equal(t, []int{50, 40}, pic.sets, "only a same-value confirmation write while held")
 	assert.Equal(t, "set 20", got.SyncBox.Decision, "the sync box is held separately")
 
-	// The TV turns off and on: the hold is cleared and the night value is sent.
+	// The TV turns off: the hold and remembered value are cleared immediately.
 	m.handleTVRemoteChange(TVRemoteEntity, nil, &ha.State{State: "standby"})
+	got = m.GetShadowState().Outputs.Brightness
+	assert.False(t, got.TV.Held)
+	assert.Empty(t, got.TV.HeldReason)
+
+	// The next on-session accepts the current reading and sends the night value.
 	m.handleTVRemoteChange(TVRemoteEntity, nil, &ha.State{State: "on"})
 	require.Eventually(t, func() bool {
 		pic.mu.Lock()
 		defer pic.mu.Unlock()
-		return len(pic.sets) == 2 && pic.sets[1] == 0
+		return len(pic.sets) == 3 && pic.sets[2] == 0
 	}, 2*time.Second, 10*time.Millisecond)
 }

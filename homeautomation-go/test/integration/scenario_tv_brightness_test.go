@@ -264,7 +264,7 @@ func TestScenario_UserStory_TVAndHueBacklightFollowRoomTargetLux(t *testing.T) {
 	// THEN: the night target does not undo the manual choices.
 	t.Log("THEN: at T+2h (night target) both manual values are kept")
 	require.Equal(t, 40, fake.brightness(), "TV manual brightness must hold")
-	require.Equal(t, writesBefore, fake.writeCount(), "no TV write while held")
+	require.Equal(t, writesBefore+1, fake.writeCount(), "only the same-value confirmation write is allowed")
 	require.Equal(t, 70, syncBoxBrightness(server), "sync box manual brightness must hold")
 
 	// WHEN: the TV is turned off and on again.

@@ -34,10 +34,22 @@ func (f *displayOffBravia) setDisplay(on bool) {
 	f.displayOn = on
 }
 
+func (f *displayOffBravia) setCurrent(v int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.current = v
+}
+
 func (f *displayOffBravia) counts() (writes, failedSets int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.writes), f.failedSets
+}
+
+func (f *displayOffBravia) brightness() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.current
 }
 
 func (f *displayOffBravia) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -130,4 +142,79 @@ func TestScenario_UserStory_TVBrightnessWaitsQuietlyWhileTheDisplayIsOff(t *test
 		writes, _ := fake.counts()
 		return writes == 1
 	}, stateWaitTimeout, statePollInterval, "brightness should be set once the display is on")
+}
+
+// TestScenario_UserStory_ZeroDuringDisplayTransitionDoesNotCreateAManualHold covers issue #1438.
+//
+// Story: "When the TV reports zero while its display is turning off, keep following the room once
+// the display is ready again; do not mistake the transition for my manual choice."
+//
+// INVARIANTS:
+//   - A zero read from a display that rejects picture writes is not a confirmed manual change.
+//   - A confirmed manual change while the display remains on is held for that on-session.
+//   - An unavailable/off state clears both device holds immediately, before recovery.
+func TestScenario_UserStory_ZeroDuringDisplayTransitionDoesNotCreateAManualHold(t *testing.T) {
+	server, client, stateManager, cleanup := setupTest(t)
+	defer cleanup()
+
+	fake := &displayOffBravia{displayOn: true, current: 25}
+	tvServer := httptest.NewServer(fake)
+	defer tvServer.Close()
+
+	t.Log("GIVEN: the on-session is established and the controller has set brightness 50")
+	server.SetState(tv.TVRemoteEntity, "on", nil)
+	server.SetState(tv.SyncBoxSoftwarePowerEntity, "off", nil)
+	mgr := tv.NewManager(context.Background(), client, stateManager, zap.NewNop(), false, nil)
+	mgr.SetPictureClient(bravia.NewClient(tvServer.URL, "test-psk"))
+	mgr.SetBrightnessPowerOnDelay(0)
+	require.NoError(t, mgr.Start())
+	defer mgr.Stop()
+	require.NoError(t, stateManager.SetNumber("tvRoomTargetLux", 150))
+	require.NoError(t, stateManager.SetNumber("tvRoomBrightnessPct", 100))
+	require.Eventually(t, func() bool {
+		writes, _ := fake.counts()
+		return writes == 1
+	}, stateWaitTimeout, statePollInterval)
+
+	t.Log("WHEN: T+1 the transitioning display reports zero but rejects a no-op picture write")
+	fake.setDisplay(false)
+	fake.setCurrent(0)
+	require.NoError(t, stateManager.SetNumber("tvRoomTargetLux", 56.8))
+	require.NoError(t, stateManager.SetNumber("tvRoomBrightnessPct", 65))
+	require.Eventually(t, func() bool {
+		_, failed := fake.counts()
+		return failed >= 1
+	}, stateWaitTimeout, statePollInterval, "the mismatch should be checked against the display")
+	brightness := mgr.GetShadowState().Outputs.Brightness
+	require.NotNil(t, brightness)
+	require.Equal(t, "TV screen not ready", brightness.TV.Decision)
+	require.False(t, brightness.TV.Held, "an unready display must not create a manual hold")
+
+	t.Log("WHEN: T+2 the display is ready and the room target is published again")
+	fake.setDisplay(true)
+	require.NoError(t, stateManager.SetNumber("tvRoomTargetLux", 57))
+	require.NoError(t, stateManager.SetNumber("tvRoomBrightnessPct", 66))
+	require.Eventually(t, func() bool {
+		return fake.brightness() == 38
+	}, stateWaitTimeout, statePollInterval, "normal calculated brightness should resume")
+
+	t.Log("WHEN: T+3 a real remote change is confirmed while the display remains on")
+	fake.setCurrent(40)
+	require.NoError(t, stateManager.SetNumber("tvRoomTargetLux", 58))
+	require.NoError(t, stateManager.SetNumber("tvRoomBrightnessPct", 67))
+	require.Eventually(t, func() bool {
+		brightness := mgr.GetShadowState().Outputs.Brightness
+		return brightness != nil && brightness.TV.Held
+	}, stateWaitTimeout, statePollInterval, "a confirmed manual change must still hold")
+
+	t.Log("WHEN: T+4 the TV entity becomes unavailable")
+	server.SetState(tv.TVRemoteEntity, "unavailable", nil)
+	client.WaitForHandlers()
+
+	t.Log("THEN: the prior session's TV and sync-box holds are cleared immediately")
+	brightness = mgr.GetShadowState().Outputs.Brightness
+	require.NotNil(t, brightness)
+	require.False(t, brightness.TV.Held)
+	require.Empty(t, brightness.TV.HeldReason)
+	require.False(t, brightness.SyncBox.Held)
 }

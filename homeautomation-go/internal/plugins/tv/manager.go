@@ -307,6 +307,8 @@ func (m *Manager) handleTVRemoteChange(entityID string, oldState, newState *ha.S
 
 	if isOn && !wasOn {
 		m.brightnessOnPowerOn()
+	} else if !isOn && wasOn {
+		m.brightnessOnPowerOff(newState.State)
 	}
 
 	m.logger.Debug("TV media_player state changed",
