@@ -114,6 +114,22 @@ music:
 - **`leave_muted_if`**: Sitting speaker when TV is playing - stays grouped, unmutes instantly when TV turns off
 - **`exclude_if`**: Primary Bed speaker when someone is asleep - excluded from "morning" zone so it can play "sleep" music in Phase 2
 
+**`hands_off` (speaker-level):** A top-level `hands_off` list names speakers that the plugin must leave
+alone while a condition holds. `exclude_if` only applies when a zone starts. `hands_off` also applies
+during playback: every speaker command checks it in `speaker_commands.go`, so the plugin skips group,
+ungroup, volume, mute and playback commands to that speaker. A running fade-in stops. Use it for a speaker
+that something else owns at times, such as a soundbar that plays TV audio:
+
+```yaml
+hands_off:
+  - player_name: "Soundbar"
+    when:
+      - variable: isTVPlaying
+        value: true
+```
+
+When the condition clears, the speaker rejoins music at the next zone start.
+
 **Code Changes:**
 1. Add `ExcludeIf` field to Participant struct (keep `LeaveMutedIf`)
 2. Add `shouldIncludeInZone()` method that evaluates `exclude_if` conditions

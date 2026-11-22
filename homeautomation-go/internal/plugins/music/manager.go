@@ -457,6 +457,13 @@ func (m *Manager) collectMuteConditionVariables() []string {
 			}
 		}
 	}
+	for _, rule := range m.config.HandsOff {
+		for _, condition := range rule.When {
+			if condition.Variable != "" && !alreadySubscribed[condition.Variable] {
+				varMap[condition.Variable] = true
+			}
+		}
+	}
 
 	// Convert map to slice
 	result := make([]string, 0, len(varMap))

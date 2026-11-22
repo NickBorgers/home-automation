@@ -460,6 +460,12 @@ func (m *Manager) joinSpeakerWithRetry(p ParticipantWithVolume, leadSpeakerName 
 // from the zone entirely and will not join the Sonos group.
 // This is different from shouldUnmuteSpeaker which controls muting within a zone.
 func (m *Manager) shouldIncludeInZone(participant Participant) bool {
+	if m.isHandsOff(participant.PlayerName) {
+		m.logger.Info("Speaker is hands-off, leaving it out of the zone",
+			zap.String("speaker", participant.PlayerName))
+		return false
+	}
+
 	// If no exclude conditions, always include
 	if len(participant.ExcludeIf) == 0 {
 		return true
@@ -665,6 +671,14 @@ func (m *Manager) fadeInSpeaker(ctx context.Context, speakerName string, targetV
 			m.logger.Info("Zone no longer active during fade-in, stopping",
 				zap.String("speaker", speakerName),
 				zap.String("zone", startingMusicType))
+			m.clearFadeInProgress(entityID)
+			return
+		}
+
+		if m.isHandsOff(speakerName) {
+			m.logger.Info("Speaker became hands-off during fade-in, stopping",
+				zap.String("speaker", speakerName),
+				zap.Int("stopped_at_volume", currentVolume))
 			m.clearFadeInProgress(entityID)
 			return
 		}
