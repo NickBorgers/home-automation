@@ -8,6 +8,38 @@ This repository contains a home automation system implemented in Golang. The sys
 
 **Important:** This is a public repository that contains the core automation framework and most plugins. Some plugins (e.g., `security-private`) live in a separate private downstream repository that extends this codebase. If you encounter log entries, state variables, or entity references that don't exist in this repo, they likely belong to a private downstream plugin — do NOT assume they are from a legacy system.
 
+## Public Text Describes Mechanisms, Not the Deployment
+
+Everything in this repository is public: code, docs, config comments, commit messages, issues, PRs and
+review comments. Describe what the code can do. Do not describe what the real house runs.
+
+Keep these facts out of public text:
+
+- **Production state.** Which plugin modes are `active` or `log_only`, which outputs a deployment writes,
+  and how far a rollout has gone.
+- **Device inventory.** Which sensors and cameras are installed, retired or replaced, their models, and
+  which rooms they watch.
+- **The private deployment data.** The house map, camera zones, room-presence areas and private config
+  values.
+- **Household patterns.** When people are home, asleep or away.
+
+What to write instead:
+
+- Write rollout and ownership guidance as general steps that hold for any deployment. For example: "Before
+  you switch an output to `active`, check that no other integration writes the same helper." Not: "Production
+  already runs the kitchen output in `active` mode."
+- Keep example names in docs that say their names are made-up examples. Do not tie an example to the real
+  house.
+- You may refer to what public files already contain, such as `configs/hue_config.yaml`. Do not add
+  deployment facts to them.
+
+**An issue may contain deployment facts.** Do not copy them into the fix. If a fix seems to need a
+deployment fact, write the general version. Say in the PR description that the deployment details stay
+private.
+
+Before you post or push, reread your text. Ask: "Does this sentence tell a stranger something about the
+real house that the code does not?" If yes, rewrite it.
+
 ## Important: Test Commands and Pre-Push Hook
 
 This repository uses test caching to avoid redundant test runs. Always use the Makefile targets:
