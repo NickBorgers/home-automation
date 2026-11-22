@@ -88,7 +88,7 @@ flowchart TD
     Off -->|No| Bri[Brightness % from<br/>room calibration]
     Bri --> Delta{Change large<br/>enough?}
     Delta -->|No| Skip[No command]
-    Delta -->|Yes| Send[light.turn_on<br/>brightness_pct, color_temp_kelvin,<br/>transition 60 s]
+    Delta -->|Yes| Send[light.turn_on<br/>brightness_pct, color_temp_kelvin,<br/>transition 30 s up, 60 s down]
 ```
 
 ### Daylight estimate
@@ -110,9 +110,9 @@ Each room has a short calibration table: the lux the cans give at a few brightne
 
 - **Off threshold with hysteresis.** The cans turn off when the needed lux falls below the lux at 1% brightness. They turn back on only when it rises 50% above that level.
 - **Minimum change.** The plugin sends a command only when brightness moves by at least 3 percentage points, or kelvin by at least 100 K.
-- **Long transitions.** Each command uses a 60-second transition, so changes are not visible as steps.
-- **Slew limit.** A lit room never moves more than 25 percentage points or 400 K from the last command in one tick (`maxBrightnessStep`, `maxKelvinStep`). A bigger gap closes over several ticks. The minimum-change rule applies after the limit. The 25-point step was judged invisible over a 60-second fade; the 400 K step is a conservative, untested guess. Turning on from dark (the fast 5-second profile, kept quick for room entry) and turning off are not limited. Follower strips follow the limited cans value.
-- **Restart and reset fade.** The plugin forgets its last command on restart and on reset. If the cans are already on, it starts from their reported brightness and color temperature, so the room fades with the normal 60-second transition and the slew limit instead of jumping to the target. A room that is really off, or whose cans report no brightness, still turns on with the short transition. A follower strip that is already on also keeps the long transition.
+- **Long transitions.** Changes are not visible as steps. A command that raises brightness by at least the minimum step uses a 30-second transition (`luxTransitionUp`), so a room brightens quickly when its target rises. A command that lowers brightness, turns the room off, or changes only color temperature uses a 60-second transition (`luxTransition`), so a room dims gently when its target falls. A follower strip uses the transition of the cans command it follows. A light that was dark keeps the short profile below. The decision text and shadow state report the transition actually sent.
+- **Slew limit.** A lit room never moves more than 25 percentage points or 400 K from the last command in one tick (`maxBrightnessStep`, `maxKelvinStep`). A bigger gap closes over several ticks. The minimum-change rule applies after the limit. The 25-point step was judged invisible over a 60-second fade; fades up are twice as fast, so the same step is a little steeper there; the 400 K step is a conservative, untested guess. Turning on from dark (the fast 5-second profile, kept quick for room entry) and turning off are not limited. Follower strips follow the limited cans value.
+- **Restart and reset fade.** The plugin forgets its last command on restart and on reset. If the cans are already on, it starts from their reported brightness and color temperature, so the room fades with the normal transition for its direction (30 s up, 60 s down) and the slew limit instead of jumping to the target. A room that is really off, or whose cans report no brightness, still turns on with the short transition. A follower strip that is already on also uses the cans' transition.
 - **Presence arrivals.** When a room turns on because someone arrived, the first command uses the existing short transition (`maxReturnHomeTransition`). Long transitions on lights that are off can fail on the Hue bridge.
 
 ## Manual override
@@ -262,7 +262,7 @@ Indoor sensors, when they come back, read light at the ceiling or wall, not at t
 
 ## Hue setup
 
-**Follower lights (under-cabinet strips).** A room's `lux_control` may list `follower_lights`. Each tick, when the loop commands the cans, it also sends each follower `brightness_pct = clamp(floor_pct + gain * cans_pct, 1, 100)`, with no color temperature and the same transition (a strip that was dark gets the short return transition). The strip is off whenever the cans are off, because daylight covers the target or the room is off. The minimum-step rule uses the strip's own last-sent value. `floor_pct` and `gain` are per-strip, user-chosen starting guesses. Tune them later.
+**Follower lights (under-cabinet strips).** A room's `lux_control` may list `follower_lights`. Each tick, when the loop commands the cans, it also sends each follower `brightness_pct = clamp(floor_pct + gain * cans_pct, 1, 100)`, with no color temperature and the same transition as the cans command (a strip that was dark gets the short return transition). The strip is off whenever the cans are off, because daylight covers the target or the room is off. The minimum-step rule uses the strip's own last-sent value. `floor_pct` and `gain` are per-strip, user-chosen starting guesses. Tune them later.
 
 | Strip | `floor_pct` / `gain` | Cans 100% | Cans 50% | Cans 10% |
 |-------|---------------------|----------:|---------:|---------:|

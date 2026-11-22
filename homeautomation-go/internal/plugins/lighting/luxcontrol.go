@@ -16,8 +16,12 @@ import (
 // Lux-target lighting for the ceiling cans. Design: docs/flows/LUX_LIGHTING.md.
 
 const (
-	// luxTransition is the transition on routine lux commands, so changes are not visible as steps.
+	// luxTransition is the transition on routine lux commands that dim, turn off, or only
+	// change color temperature, so changes are not visible as steps.
 	luxTransition = 60 * time.Second
+	// luxTransitionUp is the transition on lux commands that raise brightness. A room should
+	// brighten quickly when its target rises, and dim gently when it falls.
+	luxTransitionUp = luxTransition / 2
 	// luxDefaultTick is the control loop period when tick_seconds is not set.
 	luxDefaultTick = 60 * time.Second
 	// luxDefaultSmoothing is the outdoor smoothing window when smoothing_minutes is not set.
@@ -491,6 +495,11 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 			}
 		}
 		rec.BrightnessPct = cmd.pct
+	}
+	// A rise of less than the minimum step is a color-only change (or rounding noise) and keeps
+	// the long transition.
+	if wantOn && cmd.fromOn && cmd.pct-cmd.fromPct >= minBrightnessDelta {
+		cmd.transition = luxTransitionUp
 	}
 	if prev == nil || !prev.on {
 		// Fast profile: a room that was dark lights up with a short transition, so entering a room is

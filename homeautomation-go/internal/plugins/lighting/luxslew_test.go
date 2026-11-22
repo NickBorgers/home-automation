@@ -30,8 +30,8 @@ func TestLux_RestartWithCansOnFadesFromTheirCurrentState(t *testing.T) {
 		wantKelvin int
 		wantSecs   float64
 	}{
-		{"cans on at 50% and 3000 K fade", "on", 128, 3000, 75, 3400, 60},
-		{"cans on at 98% and 4900 K close the small gap", "on", 250, 4900, 100, 5000, 60},
+		{"cans on at 50% and 3000 K fade", "on", 128, 3000, 75, 3400, float64(luxTransitionUp / time.Second)},
+		{"cans on at 98% and 4900 K close the small gap (a rise under the minimum step keeps 60 s)", "on", 250, 4900, 100, 5000, 60},
 		{"cans off turn on directly", "off", 0, 3000, 100, 5000, float64(maxReturnHomeTransition)},
 		{"cans on without brightness count as dark", "on", 0, 3000, 100, 5000, float64(maxReturnHomeTransition)},
 	}
@@ -76,11 +76,15 @@ func TestLux_LargeGapClosesOverSeveralTicksAndEndsAtTheGoal(t *testing.T) {
 			break
 		}
 		steps++
-		// THEN: no command moves more than one step, and every one is a long transition
+		// THEN: no command moves more than one step, and brightening ones fade up quickly
 		pct, kelvin := calls[0].Data["brightness_pct"].(int), calls[0].Data["color_temp_kelvin"].(int)
 		assert.LessOrEqual(t, pct-prevPct, int(maxBrightnessStep))
 		assert.LessOrEqual(t, kelvin-prevKelvin, maxKelvinStep)
-		assert.Equal(t, 60.0, calls[0].Data["transition"])
+		wantSecs := 60.0 // a command that only moves color keeps the long transition
+		if pct > prevPct {
+			wantSecs = float64(luxTransitionUp / time.Second)
+		}
+		assert.Equal(t, wantSecs, calls[0].Data["transition"])
 		prevPct, prevKelvin = pct, kelvin
 	}
 
@@ -161,7 +165,7 @@ func TestLux_ResetFadesLitCansInsteadOfPopping(t *testing.T) {
 	calls := f.lightCalls()
 	require.Len(t, calls, 1)
 	assert.Equal(t, 75, calls[0].Data["brightness_pct"])
-	assert.Equal(t, 60.0, calls[0].Data["transition"])
+	assert.Equal(t, float64(luxTransitionUp/time.Second), calls[0].Data["transition"])
 }
 
 func TestLux_FollowersGetTheClampedValueAndFadeWhenAlreadyOn(t *testing.T) {
@@ -176,11 +180,11 @@ func TestLux_FollowersGetTheClampedValueAndFadeWhenAlreadyOn(t *testing.T) {
 	// WHEN: the first tick runs
 	f.manager.luxTick()
 
-	// THEN: the strip is derived from the clamped 75%, not the 100% goal, with the long transition
+	// THEN: the strip is derived from the clamped 75%, not the 100% goal, with the fast fade-up transition
 	calls := callsTo(f.env.MockHA, "turn_on", strip)
 	require.Len(t, calls, 1)
 	assert.Equal(t, 80, calls[0].Data["brightness_pct"], "20 + 0.8 * 75")
-	assert.Equal(t, 60.0, calls[0].Data["transition"])
+	assert.Equal(t, float64(luxTransitionUp/time.Second), calls[0].Data["transition"])
 	assert.Equal(t, 80.0, f.manager.GetShadowState().Outputs.LuxControl["Living Room"].Followers[strip].Pct)
 }
 
