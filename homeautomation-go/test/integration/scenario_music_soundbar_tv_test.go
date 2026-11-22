@@ -166,7 +166,7 @@ func TestScenario_TVPlaying_MusicStartLeavesSoundbarAlone(t *testing.T) {
 		return len(callsTouching(env.server.GetServiceCallsSince(snapshot), "media_player.kitchen")) > 0
 	}, stateWaitTimeout, statePollInterval, "Kitchen should receive music commands")
 	waitForProcessing(t, env.stateManager)
-	time.Sleep(200 * time.Millisecond) // let async group building finish
+	waitForServiceCallQuiescenceSince(t, env.server, snapshot, 100*time.Millisecond)
 
 	assert.Empty(t, callsTouching(env.server.GetServiceCallsSince(snapshot), "media_player.soundbar"),
 		"music plugin must send nothing to the Soundbar while the TV plays")
@@ -184,7 +184,7 @@ func TestScenario_TVStartsDuringMusic_ZoneChangeLeavesSoundbarAlone(t *testing.T
 	require.Eventually(t, func() bool {
 		return len(callsTouching(env.server.GetServiceCallsSince(start), "media_player.soundbar")) > 0
 	}, stateWaitTimeout, statePollInterval, "Soundbar should join music while the TV is off")
-	time.Sleep(200 * time.Millisecond) // let the Soundbar fade-in finish
+	waitForServiceCallsToStabilizeSince(t, env.server, start, 200*time.Millisecond)
 
 	// WHEN: the TV starts, then the zone changes to winddown.
 	t.Log("WHEN: the TV starts, then the day phase changes to winddown")
@@ -205,7 +205,7 @@ func TestScenario_TVStartsDuringMusic_ZoneChangeLeavesSoundbarAlone(t *testing.T
 		return false
 	}, stateWaitTimeout, statePollInterval, "Kitchen should receive winddown volume commands")
 	waitForProcessing(t, env.stateManager)
-	time.Sleep(200 * time.Millisecond)
+	waitForServiceCallQuiescenceSince(t, env.server, snapshot, 100*time.Millisecond)
 
 	assert.Empty(t, callsTouching(env.server.GetServiceCallsSince(snapshot), "media_player.soundbar"),
 		"music plugin must send nothing to the Soundbar while the TV plays")
