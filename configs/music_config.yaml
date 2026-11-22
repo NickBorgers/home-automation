@@ -530,10 +530,6 @@ music:
         media_type: music
         volume_multiplier: 1.6
       # yamllint disable-line rule:line-length
-      - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-2.m3u"
-        media_type: music
-        volume_multiplier: 1.6
-      # yamllint disable-line rule:line-length
       - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-4.m3u"
         media_type: music
         volume_multiplier: 1.6
@@ -553,10 +549,6 @@ music:
       # Multiplier 1.6 chosen to hit effective volumes 14 / 24 from base volumes 9 / 15.
       # yamllint disable-line rule:line-length
       - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-1.m3u"
-        media_type: music
-        volume_multiplier: 1.6
-      # yamllint disable-line rule:line-length
-      - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-2.m3u"
         media_type: music
         volume_multiplier: 1.6
       # yamllint disable-line rule:line-length
