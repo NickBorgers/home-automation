@@ -100,9 +100,10 @@ func (c *luxCommand) levelAt(t time.Time) (float64, int) {
 
 // luxRoomState is the per-room control state.
 type luxRoomState struct {
-	cmd       *luxCommand
-	previous  *luxCommand            // prior command, retained until its last delayed report can arrive
-	followers map[string]*luxCommand // last command per follower light
+	cmd               *luxCommand
+	previous          *luxCommand            // prior command, retained until its last delayed report can arrive
+	followers         map[string]*luxCommand // last command per follower light
+	previousFollowers map[string]*luxCommand // prior command per follower, for overlapping fade reports
 	// held is the room's manual hold. A hand change to the cans or to a follower strip sets it.
 	// It is stored in the room's hold helper (luxHoldHelper) so that it survives a restart.
 	held       bool
@@ -239,7 +240,10 @@ func luxActive(room *RoomConfig) bool {
 func (m *Manager) luxRoom(name string) *luxRoomState {
 	st, ok := m.luxRooms[name]
 	if !ok {
-		st = &luxRoomState{followers: map[string]*luxCommand{}}
+		st = &luxRoomState{
+			followers:         map[string]*luxCommand{},
+			previousFollowers: map[string]*luxCommand{},
+		}
 		m.luxRooms[name] = st
 	}
 	return st
@@ -803,7 +807,7 @@ func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
 			}
 			return
 		}
-		if s.State == "on" && !settled && withinRunningFades(st, s, room.LuxControl.HasColorTemp()) {
+		if s.State == "on" && !settled && withinRunningFades(st.cmd, st.previous, s, room.LuxControl.HasColorTemp()) {
 			// The fade is still running and the light is somewhere the fades pass through. Wait
 			// for the fade to end before deciding. A jump outside that range is decided below.
 			check.last = s
@@ -837,9 +841,9 @@ func luxFadeSettled(cmd *luxCommand, now time.Time) bool {
 // the latest was sent before the previous fade ended, since overlapping fades blend on the light.
 // A report outside it is far off any fade, so it is not a light lagging the fade.
 // Caller must hold luxMu.
-func withinRunningFades(st *luxRoomState, s *ha.State, colorTemp bool) bool {
-	cmds := []*luxCommand{st.cmd}
-	if p := st.previous; p != nil && st.cmd.at.Before(p.at.Add(p.transition)) {
+func withinRunningFades(cmd, previous *luxCommand, s *ha.State, colorTemp bool) bool {
+	cmds := []*luxCommand{cmd}
+	if p := previous; p != nil && cmd.at.Before(p.at.Add(p.transition)) {
 		cmds = append(cmds, p)
 	}
 	if b, ok := numberAttr(s.Attributes, "brightness"); ok {
@@ -923,6 +927,11 @@ func (m *Manager) handleFollowerChange(room *RoomConfig, newState *ha.State) {
 		m.luxMu.Unlock()
 		return
 	}
+	if newState.State == "on" && !luxFadeSettled(last, now) &&
+		withinRunningFades(last, st.previousFollowers[newState.EntityID], newState, false) {
+		m.luxMu.Unlock()
+		return
+	}
 	reason = newState.EntityID + ": " + reason
 	st.held, st.heldSince, st.heldReason = true, now, reason
 	m.luxMu.Unlock()
@@ -975,6 +984,7 @@ func (m *Manager) luxDriveFollowers(room *RoomConfig, st *luxRoomState, cans *lu
 			}
 		}
 		m.luxMu.Lock()
+		st.previousFollowers[f.Entity] = prev
 		st.followers[f.Entity] = next
 		m.luxMu.Unlock()
 	}
@@ -1140,6 +1150,7 @@ func (m *Manager) clearLuxHold(room *RoomConfig, reason string) {
 	st.cmd = nil
 	st.previous = nil
 	st.followers = map[string]*luxCommand{}
+	st.previousFollowers = map[string]*luxCommand{}
 	m.luxMu.Unlock()
 	if wasHeld {
 		m.logger.Info("Clearing manual hold",
@@ -1169,6 +1180,7 @@ func (m *Manager) forgetLuxCommand(room *RoomConfig) {
 	st.cmd = nil
 	st.previous = nil
 	st.followers = map[string]*luxCommand{}
+	st.previousFollowers = map[string]*luxCommand{}
 }
 
 // noteLuxRoomOff records that the plugin turned the room off, so the cans going dark
