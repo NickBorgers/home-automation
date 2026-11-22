@@ -222,11 +222,11 @@ type StateManager interface {
 }
 ```
 
-**State Variables (41 total):**
+**State Variables (42 total):**
 
 See **[docs/reference/migration_mapping.md](../reference/migration_mapping.md)** for complete mapping.
 
-- **Boolean (27):** isNickHome, isCarolineHome, isAssistantHere, isAnyOwnerHome, isAnyoneHome, isAnyoneHomeAndAwake, isMasterAsleep, isGuestAsleep, isAnyoneAsleep, isEveryoneAsleep, isGuestBedroomDoorOpen, isHaveGuests, isAppleTVPlaying, isTVPlaying, isTVon, isFadeOutInProgress, isFreeEnergyAvailable, isGridAvailable, isExpectingSomeone, isNickOfficeOccupied, isKitchenOccupied, isPrimaryBedroomDoorOpen, isNickNearHome, isCarolineNearHome, isLockdown, reset, isFrontOfHousePersonPresent
+- **Boolean (28):** isNickHome, isCarolineHome, isAssistantHere, isAnyOwnerHome, isAnyoneHome, isAnyoneHomeAndAwake, isMasterAsleep, isGuestAsleep, isAnyoneAsleep, isEveryoneAsleep, isGuestBedroomDoorOpen, isHaveGuests, isAppleTVPlaying, isTVPlaying, isTVon, isFadeOutInProgress, isFreeEnergyAvailable, isGridAvailable, isExpectingSomeone, isNickOfficeOccupied, isKitchenOccupied, isPantryOccupied, isPrimaryBedroomDoorOpen, isNickNearHome, isCarolineNearHome, isLockdown, reset, isFrontOfHousePersonPresent
 - **Number (3):** alarmTime, remainingSolarGeneration, thisHourSolarGeneration
 - **Text (8):** dayPhase, sunevent, musicPlaybackType, currentlyPlayingMusicUri, musicPlaylistRotation, batteryEnergyLevel, currentEnergyLevel, solarProductionEnergyLevel
 - **Local-only (3):** didOwnerJustReturnHome (bool), currentlyPlayingMusic (JSON), tvRoomTargetLux (number)

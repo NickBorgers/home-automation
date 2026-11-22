@@ -174,7 +174,7 @@ lighting, the code (`manager.go`) had no override detection.
 | TV playing (`skip`) | Unchanged. Hue Sync owns the lights. The room marked `tv_room` still publishes its target as `tvRoomTargetLux`, and the TV plugin sets the TV and sync box brightness from it ([TV_BRIGHTNESS.md](TV_BRIGHTNESS.md)). |
 | Primary suite, `sleephygiene` | Not converted. Sleep and wake stay as they are. |
 | `increase_brightness_if_true: isHaveGuests` | Multiplies the target lux by a factor (proposed 1.5). |
-| Presence target override | A configured presence variable multiplies the curve's cans brightness in selected phases. It never bypasses a manual hold and never recalls a scene. Only the Kitchen and the Pantry use it, both on `isKitchenOccupied`, the logical output of Frigate camera room presence. The Living room and the Mud room do not. |
+| Presence target override | A configured presence variable multiplies the curve's cans brightness in selected phases. It never bypasses a manual hold and never recalls a scene. Only the Kitchen and the Pantry use presence overrides. Each uses its own variable — `isKitchenOccupied` for the Kitchen, `isPantryOccupied` for the Pantry — both logical outputs of Frigate camera room presence. The Living room and the Mud room do not. |
 | `READ_ONLY=true` | Logs what it would send and records the decision in shadow state. |
 
 ## Configuration sketch

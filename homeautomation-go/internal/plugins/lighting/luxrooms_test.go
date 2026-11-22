@@ -317,6 +317,7 @@ func TestProductionConfig_PresenceBrightensOnlyItsOwnRoom(t *testing.T) {
 		{"kitchen night empty", at(22, 30), "night", "isKitchenOccupied", false, ""},
 		{"kitchen day occupied", at(12, 0), "day", "isKitchenOccupied", true, ""},
 		{"pantry night occupied", at(22, 30), "night", "isPantryOccupied", true, "Pantry"},
+		{"pantry winddown occupied", at(21, 30), "winddown", "isPantryOccupied", true, "Pantry"},
 		{"pantry dusk occupied", at(19, 45), "dusk", "isPantryOccupied", true, "Pantry"},
 		{"pantry night empty", at(22, 30), "night", "isPantryOccupied", false, ""},
 		{"pantry day occupied", at(12, 0), "day", "isPantryOccupied", true, ""},
