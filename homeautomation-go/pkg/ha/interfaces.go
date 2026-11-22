@@ -50,3 +50,30 @@ type Client interface {
 	SetInputNumber(name string, value float64) error
 	SetInputText(name string, value string) error
 }
+
+// MQTTMessage is one MQTT message that Home Assistant forwarded from the broker.
+type MQTTMessage struct {
+	Topic   string
+	Payload string
+	QoS     int
+	Retain  bool
+
+	// Resubscribed is true on a marker message, not a broker message. The client sends it to every
+	// handler after it subscribes again on a new connection. Messages sent while the connection was down
+	// are lost, so a handler that keeps state across messages should treat that state as stale.
+	Resubscribed bool
+}
+
+// MQTTHandler is called once per MQTT message on a subscribed topic filter.
+type MQTTHandler func(msg MQTTMessage)
+
+// MQTTSubscriber reads MQTT topics through Home Assistant's mqtt/subscribe command. The Client from
+// WrapClient implements it. It is a separate interface, so existing Client implementations, such as
+// test mocks, keep compiling. Check for it with a type assertion:
+//
+//	sub, ok := client.(ha.MQTTSubscriber)
+type MQTTSubscriber interface {
+	// SubscribeMQTT registers a handler for a topic filter, such as "sensors/+/state". The client
+	// subscribes again after every reconnect, then sends each handler a message with Resubscribed set.
+	SubscribeMQTT(topic string, handler MQTTHandler) (Subscription, error)
+}

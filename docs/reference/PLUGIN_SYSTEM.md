@@ -842,6 +842,33 @@ Plugin "security" being overridden (priority 0 -> 100)
 Starting plugin: security (Private security plugin)
 ```
 
+### Reading MQTT From an External Plugin
+
+An external plugin gets the public `pkg/ha.Client`. To read MQTT topics that Home Assistant forwards,
+assert `ha.MQTTSubscriber` on it. The client from `WrapClient` implements it.
+
+```go
+sub, ok := ctx.HAClient.(ha.MQTTSubscriber)
+if !ok {
+    return fmt.Errorf("Home Assistant client does not support MQTT")
+}
+mqttSub, err := sub.SubscribeMQTT("sensors/+/state", func(msg ha.MQTTMessage) {
+    if msg.Resubscribed {
+        // The connection dropped and came back. Messages may have been missed.
+        return
+    }
+    // Use msg.Topic and msg.Payload.
+})
+if err != nil {
+    return fmt.Errorf("subscribe MQTT: %w", err)
+}
+defer mqttSub.Unsubscribe()
+```
+
+`MQTTSubscriber` is separate from `Client`, so existing `Client` mocks keep compiling. A mock that wants
+MQTT adds a `SubscribeMQTT` method. In tests with `testutil.TestEnv`, publish with
+`env.Server.PublishMQTT(topic, payload)`.
+
 ---
 
 ## Testing Plugins
@@ -1184,7 +1211,7 @@ The plugin system has been fully implemented with the following components:
 | `pkg/plugin/context.go` | Context struct for plugin initialization |
 | `pkg/plugin/registry.go` | Global registry with priority-based override |
 | `pkg/plugin/registry_test.go` | Comprehensive tests (98.4% coverage) |
-| `pkg/ha/interfaces.go` | Public HA client interface |
+| `pkg/ha/interfaces.go` | Public HA client interface, and `MQTTSubscriber` for MQTT topics |
 | `pkg/ha/adapter.go` | Adapter wrapping internal ha.Client |
 | `pkg/state/interfaces.go` | Public state manager interface |
 | `pkg/state/adapter.go` | Adapter wrapping internal state.Manager |
