@@ -47,7 +47,7 @@ All 46 state variables currently implemented in the Go application, organized by
 | isGridAvailable | input_boolean.grid_available | Grid power availability | - |
 | isExpectingSomeone | input_boolean.expecting_someone | Expecting a visitor | - |
 | isNickOfficeOccupied | input_boolean.nick_office_occupied | Nick's office occupancy sensor | - |
-| isKitchenOccupied | input_boolean.kitchen_occupied | Kitchen occupancy sensor | - |
+| isKitchenOccupied | input_boolean.kitchen_occupied | Logical kitchen occupancy emitted by the room-presence plugin from Frigate camera events | ComputedOutput |
 | isPrimaryBedroomDoorOpen | input_boolean.primary_bedroom_door_open | Primary bedroom door state | - |
 | isNickNearHome | input_boolean.nick_near_home | Nick proximity geofence trigger | - |
 | isCarolineNearHome | input_boolean.caroline_near_home | Caroline proximity geofence trigger | - |
@@ -161,11 +161,11 @@ These variables are only referenced in disabled Node Red flows and will NOT be m
 
 ### Room Occupancy Sensors
 
-**Behavior**: Direct sensor inputs for room presence
+**Behavior**: Logical room-presence variables consumed by downstream plugins
 
 - **isNickOfficeOccupied**: Used by lighting plugin to control N Office lights (2-second transition)
-- **isKitchenOccupied**: Raises the Kitchen and Pantry lux target in the evening and at night (`lux_control.presence_override` in `hue_config.yaml`). Kitchen on/off follows `isAnyoneHomeAndAwake`
-- **Purpose**: Enable instant lighting control based on room occupancy
+- **isKitchenOccupied**: Emitted by the room-presence plugin from Frigate camera person events. It raises the Kitchen and Pantry lux target in the evening and at night (`lux_control.presence_override` in `hue_config.yaml`); Kitchen on/off follows `isAnyoneHomeAndAwake`. The compatibility helper name does not identify a physical radar sensor.
+- **Purpose**: Provide stable logical occupancy to downstream automation
 - **Configuration**: See `configs/hue_config.yaml` for room-specific lighting rules
 
 ### Eight Sleep Pod Alarm Sensors

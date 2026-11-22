@@ -254,6 +254,7 @@ rooms:
     lux_control:
       mode: active
       cans: light.kitchen_cans
+      # isKitchenOccupied is the logical output of Frigate camera room presence, not a physical radar input.
       # While someone is in the kitchen in the evening or at night, multiply the curve's cans brightness.
       # A manual hold still wins. 200% is a STARTING GUESS: at night the cans go from about 8% to 17%.
       # Tune later.
@@ -324,7 +325,8 @@ rooms:
     lux_control:
       mode: active
       cans: light.pantry # 6 cans (the 2 Mud cans are the Mud room)
-      # The Pantry has no presence signal of its own. It brightens with the Kitchen's.
+      # The Pantry has no presence signal of its own. It brightens with the Kitchen's camera-derived
+      # room-presence output; isKitchenOccupied is a logical variable, not a physical radar input.
       presence_override:
         variable: isKitchenOccupied
         phases: [sunset, dusk, winddown, night]

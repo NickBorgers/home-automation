@@ -1,7 +1,7 @@
 # Room Presence from Frigate Cameras
 
-**Status:** Built, 2026-11-07, in `internal/plugins/roompresence/`. Runs in `log_only` mode until a deployment
-switches it to `active`. Not yet wired: the lux controller's use of the entry signal.
+**Status:** Built, 2026-11-07, in `internal/plugins/roompresence/`. The production deployment runs the kitchen
+output in `active` mode; the deployment map and configuration remain private.
 
 ## Summary
 
@@ -14,8 +14,9 @@ events from MQTT and moves anonymous "person tokens" between areas on a map of t
 - **Lighting and other plugins read one boolean per area**, for example `isKitchenOccupied`. They do not read
   Frigate.
 
-The plugin starts in `log_only` mode. It computes state and shows it in shadow state, but writes nothing to
-Home Assistant.
+The configured mode controls ownership of the output variables. In `log_only` mode the plugin computes state
+and shows it in shadow state but writes nothing to Home Assistant. In `active` mode it writes its configured
+outputs; production uses this mode for `isKitchenOccupied`.
 
 **This repository holds only the mechanism.** The map of a real house, its camera zones and its configuration
 are private deployment data. They are not stored here. Every area name in this document is a made-up example.
@@ -162,7 +163,7 @@ flowchart TD
 ```
 
 "Token stays" covers a person who sits behind a counter, or who stops moving long enough for Frigate to lose
-them. This is where radar sensors failed, so it is the default.
+them, so it is the default.
 
 ### How a token goes away
 
@@ -306,8 +307,11 @@ Create the helper with max length 255. Shadow state calls a restored token's rea
 
 ## Outputs
 
-The config maps output variables to areas. A variable is true when any of its areas holds a token. The first
-one is `isKitchenOccupied`, which was formerly fed by a Home Assistant automation from an mmWave radar (now retired).
+The config maps output variables to areas. A variable is true when any of its areas holds a token. In the
+production deployment, the room-presence plugin owns `isKitchenOccupied` and derives it from Frigate camera
+person events. The name is a logical state variable, not evidence that a particular occupancy sensor is
+installed or authoritative. A retired Home Assistant automation once populated the same compatibility helper
+from an mmWave radar; that is historical only and is not part of the current kitchen occupancy path.
 
 The plugin also reports, in shadow state only (query in real time with `curl /api/shadow/roompresence`):
 
@@ -322,8 +326,8 @@ gives the slow fade. The entry signal is a callback, not a state variable: `mana
 `OnEntry(area string)` function. The lux plugin registers this callback at startup, alongside its other
 subscriptions.
 
-When the plugin starts writing a variable, disable any Home Assistant automation that also writes it. Otherwise
-the two fight.
+Each active output must have one writer. For the production kitchen output that writer is this plugin; no
+lighting path reads a radar or other physical occupancy sensor directly.
 
 ## Implementation
 
@@ -401,13 +405,16 @@ room_presence:
 
 Adding a Frigate zone that follows the convention needs no config change. Adding an area needs one line.
 
-## Rollout
+## Deployment ownership
 
-1. **Log only.** Run the plugin in production in `log_only` mode. Compare tokens with real life for a few days,
-   and tune windows and idle limits. Lighting does not change.
-2. **Kitchen.** Switch to `active` for `isKitchenOccupied` only, and disable the old automation that writes it.
-3. **More areas.** Add outputs and lighting rules area by area.
-4. **Fast fade.** Wire the entry signal into lux control.
+The production deployment already runs `isKitchenOccupied` in `active` mode. Frigate events enter through the
+room-presence plugin, which writes the logical Home Assistant helper; lighting consumes that helper only as a
+lux target override. Operators should diagnose the Frigate MQTT feed, camera health and room-presence shadow
+state rather than looking for a kitchen radar sensor.
+
+For a new output, first observe it in `log_only` mode and tune its windows and idle limits. Before making it
+active, verify that no other integration writes the same helper. This is a general single-writer check, not a
+kitchen radar migration step.
 
 ## Logs
 
