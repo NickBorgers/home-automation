@@ -380,6 +380,16 @@ func (m *Manager) joinSpeakerWithRetry(p ParticipantWithVolume, leadSpeakerName 
 
 	var joinErr error
 	for attempt := 1; attempt <= maxAsyncSpeakerRetries; attempt++ {
+		// The stagger and retry delays can last minutes. A newer zone resolution may
+		// have moved the speaker to another zone meanwhile. Joining now would pull it
+		// out of that zone and into this lead's music (issue #1477).
+		if m.followerJoinIsStale(p.PlayerName, leadSpeakerName) {
+			m.logger.Info("Skipping stale async speaker join",
+				zap.String("speaker", p.PlayerName),
+				zap.String("lead", leadSpeakerName))
+			return nil
+		}
+
 		joinErr = m.speakerJoinGroup(p.PlayerName, leadSpeakerName)
 
 		if joinErr == nil {
@@ -453,6 +463,12 @@ func (m *Manager) joinSpeakerWithRetry(p ParticipantWithVolume, leadSpeakerName 
 	}
 
 	return nil
+}
+
+// followerJoinIsStale reports whether the speaker no longer belongs to a zone led by
+// leadSpeakerName, so a join planned earlier must be dropped.
+func (m *Manager) followerJoinIsStale(speaker, leadSpeakerName string) bool {
+	return m.zoneManager != nil && !m.zoneManager.SpeakerFollowsLead(speaker, leadSpeakerName)
 }
 
 // shouldIncludeInZone determines if a speaker should be included in the zone at all.

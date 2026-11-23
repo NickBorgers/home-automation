@@ -76,6 +76,9 @@ func (m *Manager) Start() error {
 	if err := m.subHelper.SubscribeToEntity("input_boolean.sex", m.handleSexModeChange); err != nil {
 		return err
 	}
+	if err := m.subHelper.SubscribeToState("musicPlaybackType", m.handleMusicPlaybackTypeChange); err != nil {
+		return err
+	}
 
 	// Subscribe to isAnyoneAsleep to auto-clear sex mode on wake-up.
 	// This ensures that when a wake-up event occurs (isAnyoneAsleep: true→false),
@@ -176,6 +179,9 @@ func (m *Manager) handleSexModeOff() {
 		return
 	}
 	clearedByWakeUp := m.clearedByWakeUp
+	// Release ownership before restoring the saved type. Otherwise the
+	// musicPlaybackType subscription below would reject our own deliberate end.
+	m.isActive = false
 	m.mu.Unlock()
 
 	m.logger.Info("Deactivating sex mode", zap.Bool("cleared_by_wakeup", clearedByWakeUp))
@@ -191,7 +197,6 @@ func (m *Manager) handleSexModeOff() {
 
 	// Update state tracking
 	m.mu.Lock()
-	m.isActive = false
 	m.preSexMusicType = ""
 	m.activatedAt = time.Time{}
 	m.clearedByWakeUp = false
@@ -203,6 +208,34 @@ func (m *Manager) handleSexModeOff() {
 		reason = "Sex mode auto-cleared due to wake-up event"
 	}
 	m.recordAction("deactivate", reason, "input_boolean.sex")
+}
+
+// handleMusicPlaybackTypeChange keeps the explicit sex-music session authoritative
+// until input_boolean.sex is turned off. Automatic music selection may still update
+// other zones, but it cannot replace the bedroom override while sex mode is active.
+func (m *Manager) handleMusicPlaybackTypeChange(key string, oldValue, newValue interface{}) {
+	newType, ok := newValue.(string)
+	if !ok || newType == "sex" {
+		return
+	}
+
+	m.mu.Lock()
+	isActive := m.isActive
+	clearedByWakeUp := m.clearedByWakeUp
+	m.mu.Unlock()
+	// Return early when sex mode is off, or when a wake-up auto-clear is in flight
+	// (clearedByWakeUp=true means the HA turn_off is pending but isActive is still true;
+	// writing "sex" back here would defeat the wake-up path before HA echoes the off event).
+	if !isActive || clearedByWakeUp {
+		return
+	}
+
+	m.logger.Info("Keeping explicit sex music active",
+		zap.String("rejected_type", newType),
+		zap.String("end_action", "turn off input_boolean.sex"))
+	if err := m.stateManager.SetString("musicPlaybackType", "sex"); err != nil {
+		m.logger.Error("Failed to preserve explicit sex music", zap.Error(err))
+	}
 }
 
 // handleIsAnyoneAsleepChange handles changes to the isAnyoneAsleep state variable.

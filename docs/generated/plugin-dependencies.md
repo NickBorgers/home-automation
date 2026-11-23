@@ -96,6 +96,7 @@ graph LR
     isAnyoneHome -.-> security
     isEveryoneAsleep -.-> security
     isAnyoneAsleep -.-> sexmode
+    musicPlaybackType -.-> sexmode
     isMasterAsleep -.-> sleephygiene
     isAnyoneHome -.-> statetracking
     currentEnergyLevel -.-> tesla

@@ -126,6 +126,12 @@ flowchart TD
 | `sleep` | (triggered by sleep state) | Rain sounds | Triggered by isAnyoneAsleep, not day phase |
 | `wakeup` | (alarm trigger) | Ambient relaxation | Gentle wake-up music (set by sleep hygiene plugin) |
 
+An explicitly activated `sex` session owns the bedroom music selection while
+`input_boolean.sex` remains on. Automatic day-phase selection and restoration of a
+previous mode cannot replace that session, including while its zone start is retrying.
+Turning `input_boolean.sex` off deliberately ends the override and restores normal
+automatic selection.
+
 ## Playback Orchestration
 
 When a music mode is selected, the following sequence executes. The key optimization is **async speaker grouping**: the lead speaker starts playing immediately while follower speakers join the group in the background.
@@ -195,6 +201,10 @@ The async approach provides faster perceived playback start:
 - **After**: Start playback on lead immediately → followers join in background (faster)
 
 Followers that fail to join (e.g., speaker offline) are logged but don't block playback. Followers whose mute conditions were met at playback start are pre-silenced before the join attempt, so a join failure cannot leave them playing unmuted (issue #998).
+
+A follower's join can wait minutes for its stagger and retry delays. Before each attempt, the plugin checks that
+the speaker still belongs to a zone led by the same lead speaker. If a later zone resolution moved the speaker, for
+example into the `sex` zone, the plugin drops the join. The old zone cannot pull the speaker back (issue #1477).
 
 ## Zone Start Retry
 
