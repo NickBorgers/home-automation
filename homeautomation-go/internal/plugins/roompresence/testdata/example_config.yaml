@@ -20,7 +20,11 @@ room_presence:
     # An unseen area lists the seen area outside its doorway as a neighbor. A person who comes back
     # and is tracked only after the doorway then still moves the token out.
     study:   { seen: false, idle_limit: 3h, neighbors: [lounge] }
-    bedroom: { seen: false, neighbors: [hall], bed_sensors: [binary_sensor.example_bed_presence] }
+    # Nothing sees a person in the bedroom, so other signals keep its token: a bed sensor or a do-not-disturb
+    # helper that is on, and the bedroom door opening or closing.
+    bedroom: { seen: false, neighbors: [hall], bed_sensors: [binary_sensor.example_bed_presence],
+               presence_sensors: [input_boolean.example_do_not_disturb],
+               door_sensors: [binary_sensor.example_bedroom_door] }
     # An exit sensor outside the porch door turning on just after a token arrives means that person left.
     # The street camera sees the path farther out. Street, then yard, then the door unlocked: someone came in.
     porch:   { seen: false, idle_limit: 10m, leads_outside: true, neighbors: [hall],

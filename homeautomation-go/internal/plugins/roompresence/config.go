@@ -124,6 +124,16 @@ type AreaConfig struct {
 	// BedSensors are binary sensors that, when on, mean someone is in a bed in this area.
 	BedSensors []string `yaml:"bed_sensors"`
 
+	// PresenceSensors are binary sensors or helpers that, when on, mean someone is in this area, such as a
+	// do-not-disturb helper that people turn on from inside. Like a bed sensor, one that turns on, or is on at
+	// startup, makes sure the area holds a token. Turning off removes nothing.
+	PresenceSensors []string `yaml:"presence_sensors"`
+
+	// DoorSensors are contact sensors on the area's doors. A door that opens or closes means someone is in the
+	// area, so the area gets a token if it has none. The one exception is a door that moves within
+	// exit_window after a token left the area: that is the person who left, closing the door behind them.
+	DoorSensors []string `yaml:"door_sensors"`
+
 	// ExitSensors are binary sensors outside the area's outside door, such as an outdoor camera's person
 	// sensor. One that turns on just after a token arrives means that person went outside. Only an unseen
 	// area that leads outside may have them.
@@ -389,6 +399,12 @@ func (c *Config) sensorAreas(entity string) sensorRoles {
 		if has(a.BedSensors) {
 			r.beds = append(r.beds, name)
 		}
+		if has(a.PresenceSensors) {
+			r.presence = append(r.presence, name)
+		}
+		if has(a.DoorSensors) {
+			r.doors = append(r.doors, name)
+		}
 		if has(a.ExitSensors) {
 			r.exits = append(r.exits, name)
 		}
@@ -404,14 +420,16 @@ func (c *Config) sensorAreas(entity string) sensorRoles {
 
 // sensorRoles lists, for one entity, the areas where it is each kind of sensor.
 type sensorRoles struct {
-	beds, exits, approaches, entries []string
+	beds, presence, doors, exits, approaches, entries []string
 }
 
-// sensorEntities lists every bed, exit, approach and entry sensor, once each.
+// sensorEntities lists every bed, presence, door, exit, approach and entry sensor, once each.
 func (c *Config) sensorEntities() []string {
 	set := map[string]bool{}
 	for _, a := range c.Areas {
-		for _, list := range [][]string{a.BedSensors, a.ExitSensors, a.ApproachSensors, a.EntrySensors} {
+		for _, list := range [][]string{
+			a.BedSensors, a.PresenceSensors, a.DoorSensors, a.ExitSensors, a.ApproachSensors, a.EntrySensors,
+		} {
 			for _, e := range list {
 				set[e] = true
 			}

@@ -157,14 +157,20 @@ func (m *Manager) Start() error {
 		}
 	}
 	m.subHelper.CaptureInitialInputs()
-	// SubscribeToEntity is change-only. Apply the current bed sensor state at startup so a sensor that
-	// is already on before the plugin starts still occupies the area. An exit sensor that is already on
-	// is not a person leaving now, so it is not applied.
+	// SubscribeToEntity is change-only. Apply the current bed and presence sensor state at startup so a
+	// sensor that is already on before the plugin starts still occupies the area. An exit sensor that is
+	// already on is not a person leaving now, and a door's state is not a door moving, so neither is applied.
 	for _, name := range sortedKeys(m.cfg.Areas) {
 		area := name
 		for _, entity := range m.cfg.Areas[name].BedSensors {
 			if s, err := m.haClient.GetState(entity); err == nil && s != nil && s.State == "on" {
 				m.apply(func(t *Tracker, now time.Time) { t.BedOccupied(now, area) })
+			}
+		}
+		for _, entity := range m.cfg.Areas[name].PresenceSensors {
+			entity := entity
+			if s, err := m.haClient.GetState(entity); err == nil && s != nil && s.State == "on" {
+				m.apply(func(t *Tracker, now time.Time) { t.PresenceOn(now, area, entity) })
 			}
 		}
 	}

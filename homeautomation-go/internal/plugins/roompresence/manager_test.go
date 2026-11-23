@@ -179,6 +179,25 @@ func TestManager_BedSensor(t *testing.T) {
 	require.Eventually(t, func() bool { return m.Occupied("bedroom") }, time.Second, 10*time.Millisecond)
 }
 
+// A presence sensor that is already on at startup occupies the area. A door sensor's state at startup is
+// not a door moving, so it adds nothing.
+func TestManager_PresenceAndDoorSensorsAtStartup(t *testing.T) {
+	m, mockHA, _ := newTestManager(t, exampleConfig(t), false)
+	mockHA.SetState("input_boolean.example_do_not_disturb", "on", nil)
+	mockHA.SetState("binary_sensor.example_bedroom_door", "off", nil)
+	require.NoError(t, m.Start())
+	defer m.Stop()
+	require.Eventually(t, func() bool { return m.Occupied("bedroom") }, time.Second, 10*time.Millisecond)
+
+	m2, mockHA2, _ := newTestManager(t, exampleConfig(t), false)
+	mockHA2.SetState("binary_sensor.example_bedroom_door", "off", nil)
+	require.NoError(t, m2.Start())
+	defer m2.Stop()
+	assert.False(t, m2.Occupied("bedroom"))
+	mockHA2.SimulateStateChange("binary_sensor.example_bedroom_door", "on")
+	require.Eventually(t, func() bool { return m2.Occupied("bedroom") }, time.Second, 10*time.Millisecond)
+}
+
 func TestManager_ExitSensor(t *testing.T) {
 	m, mockHA, _ := newTestManager(t, exampleConfig(t), false)
 	mockHA.SetState(yardPerson, "on", nil) // already on at startup: not a person leaving
