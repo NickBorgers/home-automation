@@ -13,6 +13,7 @@ import (
 	"homeautomation/internal/ha"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
+	"homeautomation/pkg/lighthold"
 
 	"go.uber.org/zap"
 )
@@ -39,6 +40,7 @@ type Manager struct {
 	logger        *zap.Logger
 	readOnly      bool
 	shadowTracker *shadowstate.LightingTracker
+	lightHolds    *lighthold.Hub
 
 	// Subscription helper for automatic shadow state input capture
 	subHelper *shadowstate.SubscriptionHelper
@@ -81,6 +83,9 @@ type Manager struct {
 	colorTargetOn    atomic.Bool
 	cachedColor      *shadowstate.TrackedLightColor
 	lastAppliedColor *shadowstate.TrackedLightColor
+	areaCacheMu      sync.Mutex
+	areaEntities     map[string][]string
+	areaCacheUpdated time.Time
 }
 
 // roomDebounce tracks a pending coalesced evaluation for a single room.
@@ -108,6 +113,7 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		clock:          clock.NewRealClock(),
 		roomDebounces:  make(map[string]*roomDebounce),
 		luxRooms:       make(map[string]*luxRoomState),
+		areaEntities:   make(map[string][]string),
 		// Default 0 means "fire synchronously"; the plugin adapter's Start()
 		// sets the production delay so tests that don't go through the adapter
 		// stay deterministic (no timer coordination required).
@@ -118,6 +124,11 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 // SetClock overrides the time source. Intended for tests using clock.MockClock.
 func (m *Manager) SetClock(c clock.Clock) {
 	m.clock = c
+}
+
+// SetLightHolds sets the hub used to protect lights held by other plugins.
+func (m *Manager) SetLightHolds(h *lighthold.Hub) {
+	m.lightHolds = h
 }
 
 // SetDebounceDelay overrides the per-room debounce delay. Intended for tests.
@@ -1019,29 +1030,6 @@ func copyServiceData(src map[string]interface{}) map[string]interface{} {
 
 // turnOffRoom turns off lights in a room
 func (m *Manager) turnOffRoom(ctx context.Context, room *RoomConfig, trigger string) {
-	if m.readOnly {
-		switch {
-		case room.TurnOffEntityID != "":
-			m.logger.Info("READ-ONLY: Would turn off room",
-				zap.String("room", room.HueGroup),
-				zap.String("entity_id", room.TurnOffEntityID),
-				zap.String("trigger", trigger))
-		case room.HASSAreaID == "" && luxManaged(room):
-			m.logger.Info("READ-ONLY: Would turn off room",
-				zap.String("room", room.HueGroup),
-				zap.String("entity_id", room.LuxControl.Cans),
-				zap.String("trigger", trigger))
-		default:
-			m.logger.Info("READ-ONLY: Would turn off room",
-				zap.String("room", room.HueGroup),
-				zap.String("area_id", room.HASSAreaID),
-				zap.String("trigger", trigger))
-		}
-		// Record shadow state even in read-only mode for consistency with music plugin
-		m.recordAction(room.HueGroup, "turn_off", "Would turn off room", "", true, trigger)
-		return
-	}
-
 	// Use light.turn_off with area_id
 	// Note: We intentionally do NOT apply transition_seconds to turn_off commands.
 	// The transition setting is designed for pleasant scene changes during waking hours,
@@ -1075,6 +1063,51 @@ func (m *Manager) turnOffRoom(ctx context.Context, room *RoomConfig, trigger str
 		serviceData["entity_id"] = entities
 	}
 
+	reason := "Turned off room"
+	held := map[string][]string(nil)
+	if m.lightHolds != nil {
+		held = m.lightHolds.HeldEntities(m.clock.Now())
+	}
+	if len(held) > 0 {
+		entities, err := m.turnOffEntities(room, serviceData)
+		if err != nil {
+			m.logger.Warn("Could not resolve room area while light holds are active; turning off explicit entities only",
+				zap.String("room", room.HueGroup), zap.String("area_id", room.HASSAreaID), zap.Error(err))
+			entities = explicitTurnOffEntities(room)
+		}
+		kept := make(map[string][]string)
+		remaining := entities[:0]
+		for _, entityID := range entities {
+			if owners, ok := held[entityID]; ok {
+				kept[entityID] = owners
+				continue
+			}
+			remaining = append(remaining, entityID)
+		}
+		if len(kept) > 0 {
+			m.logger.Info("Keeping held lights on", zap.String("room", room.HueGroup), zap.Any("held_lights", kept))
+			reason = fmt.Sprintf("Turned off room while keeping held lights on: %v", kept)
+		}
+		if len(remaining) == 0 {
+			m.recordAction(room.HueGroup, "turn_off", reason, "", true, trigger)
+			return
+		}
+		// Only switch from area_id to entity_id when at least one entity in
+		// this room is held. If no held entity belongs to this room, keep the
+		// original area-based call so lights absent from the registry (disabled,
+		// briefly disconnected) are not silently missed.
+		if len(kept) > 0 {
+			serviceData = map[string]interface{}{"entity_id": remaining}
+		}
+	}
+
+	if m.readOnly {
+		m.logger.Info("READ-ONLY: Would turn off room", zap.String("room", room.HueGroup),
+			zap.Any("service_data", serviceData), zap.String("trigger", trigger))
+		m.recordAction(room.HueGroup, "turn_off", "Would "+reason, "", true, trigger)
+		return
+	}
+
 	// Call the service with the room-scoped context (cancelled if room is re-evaluated)
 	err := m.haClient.CallService(ctx, "light", "turn_off", serviceData)
 	if err != nil {
@@ -1095,7 +1128,63 @@ func (m *Manager) turnOffRoom(ctx context.Context, room *RoomConfig, trigger str
 		zap.String("room", room.HueGroup))
 
 	// Record action in shadow state
-	m.recordAction(room.HueGroup, "turn_off", "Turned off room", "", true, trigger)
+	m.recordAction(room.HueGroup, "turn_off", reason, "", true, trigger)
+}
+
+const areaEntityCacheTTL = 5 * time.Minute
+
+func (m *Manager) turnOffEntities(room *RoomConfig, serviceData map[string]interface{}) ([]string, error) {
+	if _, usesArea := serviceData["area_id"]; !usesArea {
+		return explicitTurnOffEntities(room), nil
+	}
+	m.areaCacheMu.Lock()
+	defer m.areaCacheMu.Unlock()
+	if m.areaCacheUpdated.IsZero() || m.clock.Since(m.areaCacheUpdated) >= areaEntityCacheTTL {
+		entities, err := m.haClient.GetEntityRegistry()
+		if err != nil {
+			return nil, fmt.Errorf("get entity registry: %w", err)
+		}
+		devices, err := m.haClient.GetDevices()
+		if err != nil {
+			return nil, fmt.Errorf("get device registry: %w", err)
+		}
+		deviceAreas := make(map[string]string, len(devices))
+		for _, device := range devices {
+			deviceAreas[device.ID] = device.AreaID
+		}
+		m.areaEntities = make(map[string][]string)
+		for _, entity := range entities {
+			if !strings.HasPrefix(entity.EntityID, "light.") || entity.DisabledBy != "" {
+				continue
+			}
+			areaID := entity.AreaID
+			if areaID == "" {
+				areaID = deviceAreas[entity.DeviceID]
+			}
+			if areaID != "" {
+				m.areaEntities[areaID] = append(m.areaEntities[areaID], entity.EntityID)
+			}
+		}
+		m.areaCacheUpdated = m.clock.Now()
+	}
+	result := append([]string(nil), m.areaEntities[room.HASSAreaID]...)
+	result = append(result, explicitTurnOffEntities(room)...)
+	return result, nil
+}
+
+func explicitTurnOffEntities(room *RoomConfig) []string {
+	entities := make([]string, 0, 1)
+	if room.TurnOffEntityID != "" {
+		entities = append(entities, room.TurnOffEntityID)
+	} else if room.HASSAreaID == "" && luxManaged(room) {
+		entities = append(entities, room.LuxControl.Cans)
+	}
+	if luxManaged(room) {
+		for _, follower := range room.LuxControl.FollowerLights {
+			entities = append(entities, follower.Entity)
+		}
+	}
+	return entities
 }
 
 // handleLightingResetChange responds to the manual lighting reset trigger

@@ -8,6 +8,7 @@ import (
 
 	"homeautomation/internal/clock"
 	"homeautomation/internal/ha"
+	"homeautomation/pkg/lighthold"
 	"homeautomation/pkg/testutil"
 
 	"github.com/stretchr/testify/assert"
@@ -310,6 +311,67 @@ func TestTurnOffRoomConfiguredEntityOverridesArea(t *testing.T) {
 	call := env.MockHA.GetServiceCalls()[0]
 	assert.Equal(t, "light.another_room", call.Data["entity_id"])
 	assert.NotContains(t, call.Data, "area_id")
+}
+
+func TestTurnOffRoomRespectsLightHolds(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name          string
+		held          []string
+		registryError bool
+		readOnly      bool
+		expected      []string
+		expectedCalls int
+	}{
+		{name: "held area light", held: []string{"light.held"}, expected: []string{"light.other"}, expectedCalls: 1},
+		{name: "all area lights held", held: []string{"light.held", "light.other"}, expectedCalls: 0},
+		{name: "registry error fails closed", held: []string{"light.held"}, registryError: true, expectedCalls: 0},
+		{name: "read only makes no call", held: []string{"light.held"}, readOnly: true, expectedCalls: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := testutil.NewEnv(t)
+			env.MockHA.SetEntityRegistry([]*ha.EntityRegistryEntry{
+				{EntityID: "light.held", AreaID: "example_area"},
+				{EntityID: "light.other", DeviceID: "example_device"},
+			})
+			env.MockHA.SetDevices([]*ha.Device{{ID: "example_device", AreaID: "example_area"}})
+			if tt.registryError {
+				env.MockHA.SetEntityRegistryError(errors.New("registry unavailable"))
+			}
+			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, &HueConfig{}, env.Logger, tt.readOnly, nil)
+			holds := lighthold.NewHub()
+			for _, entityID := range tt.held {
+				holds.Hold(entityID, "example-plugin", time.Now().Add(time.Minute))
+			}
+			manager.SetLightHolds(holds)
+			room := &RoomConfig{HueGroup: "Example Room", HASSAreaID: "example_area"}
+
+			manager.turnOffRoom(context.Background(), room, "test")
+
+			calls := env.MockHA.GetServiceCalls()
+			assert.Len(t, calls, tt.expectedCalls)
+			if tt.expectedCalls > 0 {
+				assert.Equal(t, tt.expected, calls[0].Data["entity_id"])
+				assert.NotContains(t, calls[0].Data, "area_id")
+			}
+		})
+	}
+}
+
+func TestTurnOffRoomExpiredHoldUsesLegacyAreaCall(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, &HueConfig{}, env.Logger, false, nil)
+	holds := lighthold.NewHub()
+	holds.Hold("light.example", "example-plugin", time.Now().Add(-time.Minute))
+	manager.SetLightHolds(holds)
+
+	manager.turnOffRoom(context.Background(), &RoomConfig{HueGroup: "Example Room", HASSAreaID: "example_area"}, "test")
+
+	calls := env.MockHA.GetServiceCalls()
+	assert.Equal(t, "example_area", calls[0].Data["area_id"])
+	assert.NotContains(t, calls[0].Data, "entity_id")
 }
 
 func TestEvaluateAndActivateRoom(t *testing.T) {

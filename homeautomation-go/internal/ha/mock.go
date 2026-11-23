@@ -47,6 +47,7 @@ type MockClient struct {
 	devicesMu      sync.RWMutex
 	entityRegistry []*EntityRegistryEntry
 	entityRegMu    sync.RWMutex
+	entityRegErr   error
 
 	// Service response injection for CallServiceWithResponse
 	serviceResponses   map[string]json.RawMessage // key: "domain.service"
@@ -899,10 +900,20 @@ func (m *MockClient) GetDevices() ([]*Device, error) {
 func (m *MockClient) GetEntityRegistry() ([]*EntityRegistryEntry, error) {
 	m.entityRegMu.RLock()
 	defer m.entityRegMu.RUnlock()
+	if m.entityRegErr != nil {
+		return nil, m.entityRegErr
+	}
 
 	entities := make([]*EntityRegistryEntry, len(m.entityRegistry))
 	copy(entities, m.entityRegistry)
 	return entities, nil
+}
+
+// SetEntityRegistryError configures entity registry reads to fail.
+func (m *MockClient) SetEntityRegistryError(err error) {
+	m.entityRegMu.Lock()
+	defer m.entityRegMu.Unlock()
+	m.entityRegErr = err
 }
 
 // SetDevices sets the mock device registry for testing.
