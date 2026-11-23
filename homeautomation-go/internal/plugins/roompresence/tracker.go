@@ -384,6 +384,7 @@ func (t *Tracker) matchExits(now time.Time, area string) {
 		}
 		if best != nil {
 			t.removeToken(now, best, "went outside: "+e.entity+" turned on")
+			t.lastLeft[area] = now
 			continue
 		}
 		// A token may still arrive. Allow one tick past the window, since Tick runs once a second.
