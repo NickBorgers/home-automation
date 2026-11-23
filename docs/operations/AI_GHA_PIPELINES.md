@@ -896,10 +896,18 @@ Conversation logs are uploaded even on failure to help debug:
 
 ### Modifying AI Prompts
 
-The prompts are embedded in the workflow YAML in the `runCmd` block. Key sections:
-- `YOUR TASK`: What the AI assistant should do
+Prompts live in `.github/ci/prompts/`. Every agent gets the shared preamble
+(`_preamble.md`) prepended automatically before its own prompt file.
+The preamble sets up production-log tools (Loki, InfluxDB) and the
+"Check the Story Against Production Evidence" instruction for all agents.
+
+Agent-specific prompts follow the preamble and have three key sections:
+- `YOUR TASK`: What the agent should do
 - `IMPORTANT RULES`: Repository-specific constraints
 - Post-task actions: How to report results
+
+To add an instruction that applies to ALL agents, edit `_preamble.md`.
+To change one agent's behaviour, edit its own `.md` file.
 
 ---
 

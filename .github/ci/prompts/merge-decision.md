@@ -29,6 +29,10 @@ ${CROSS_PR_CONTEXT}
    Do NOT silently ignore review findings. Your merge decision comment must reference each finding.
 4. SPOT CHECK: For the 2-3 most-changed files, verify reviewers addressed the most
    significant changes. A one-line approval on a 500+ line diff is suspicious — dig in.
+4b. EVIDENCE CHECK (bug fixes): Query Loki and InfluxDB for the incident window yourself. Find the first
+   event that went wrong. Does the fix guard the code path that produced it? Does the scenario test replay
+   that sequence? If not, the verdict is NO-GO, even when every reviewer approved. If the logs are
+   unreachable or expired, say so in the decision comment.
 5. CROSS-PR CHECK: Read the recent context above. Does this PR conflict with or
    undermine recently merged changes? (e.g., tests still exercising a removed feature)
 6. APPLY FIXES: You are the ONLY agent that pushes commits. If any reviewer identified
