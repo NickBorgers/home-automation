@@ -377,6 +377,7 @@ func TestScenario_SleepPrepRain_RetriesWhenLeadSpeakerHangsDuringStart(t *testin
 // INVARIANT: Once sex mode explicitly starts sex music, automatic mode writers cannot
 // replace it or regroup Primary Bed until input_boolean.sex is deliberately turned off.
 func TestScenario_ExplicitSexMusicSurvivesRetryAndAutomaticModeRestore(t *testing.T) {
+	t.Parallel()
 	server, client, stateManager, cleanup := setupTest(t)
 	defer cleanup()
 

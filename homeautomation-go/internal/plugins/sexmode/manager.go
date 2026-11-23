@@ -221,8 +221,12 @@ func (m *Manager) handleMusicPlaybackTypeChange(key string, oldValue, newValue i
 
 	m.mu.Lock()
 	isActive := m.isActive
+	clearedByWakeUp := m.clearedByWakeUp
 	m.mu.Unlock()
-	if !isActive {
+	// Return early when sex mode is off, or when a wake-up auto-clear is in flight
+	// (clearedByWakeUp=true means the HA turn_off is pending but isActive is still true;
+	// writing "sex" back here would defeat the wake-up path before HA echoes the off event).
+	if !isActive || clearedByWakeUp {
 		return
 	}
 
