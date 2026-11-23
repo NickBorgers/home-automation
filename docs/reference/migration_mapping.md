@@ -49,7 +49,6 @@ All 46 state variables currently implemented in the Go application, organized by
 | isNickOfficeOccupied | input_boolean.nick_office_occupied | Nick's office occupancy sensor | - |
 | isKitchenOccupied | input_boolean.kitchen_occupied | Logical kitchen occupancy emitted by the room-presence plugin from Frigate camera events | ComputedOutput |
 | isPantryOccupied | input_boolean.pantry_occupied | Logical pantry occupancy emitted by the room-presence plugin | ComputedOutput |
-| isPrimaryBedroomDoorOpen | input_boolean.primary_bedroom_door_open | Primary bedroom door state | - |
 | isNickNearHome | input_boolean.nick_near_home | Nick proximity geofence trigger | - |
 | isCarolineNearHome | input_boolean.caroline_near_home | Caroline proximity geofence trigger | - |
 | isLockdown | input_boolean.lockdown | Security lockdown momentary trigger | - |

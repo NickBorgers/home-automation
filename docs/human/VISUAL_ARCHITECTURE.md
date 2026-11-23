@@ -963,7 +963,6 @@ graph LR
         NickNearHome[isNickNearHome]
         CarolineNearHome[isCarolineNearHome]
         NickOffice[isNickOfficeOccupied]
-        PrimaryDoor[isPrimaryBedroomDoorOpen]
         SexModeInput[input_boolean.sex]
     end
 
@@ -1097,7 +1096,6 @@ graph LR
     HaveGuests --> Lighting
     NickOffice --> Lighting
     Kitchen -->|Lux Override| Lighting
-    PrimaryDoor --> Lighting
     WeatherStationIlluminance -->|Outdoor Lux Reference| Lighting
     Lighting --> DarkOutside
     DarkOutside --> Lighting
@@ -1234,7 +1232,7 @@ graph LR
 
 | Category | Count | Examples |
 |----------|-------|----------|
-| **Boolean (input)** | 18 | isNickHome, isCarolineHome, isAssistantHere, isMasterAsleep, isHaveGuests, isNickOfficeOccupied, isPrimaryBedroomDoorOpen, isNickNearHome, isCarolineNearHome, isFrontOfHousePersonPresent |
+| **Boolean (input)** | 18 | isNickHome, isCarolineHome, isAssistantHere, isMasterAsleep, isHaveGuests, isNickOfficeOccupied, isNickNearHome, isCarolineNearHome, isFrontOfHousePersonPresent |
 | **Boolean (computed)** | 7 | isAnyOwnerHome, isAnyoneHome, isAnyoneAsleep, isEveryoneAsleep, isAnyoneHomeAndAwake, isGuestAsleep, isDarkOutside |
 | **Boolean (output)** | 7 | isFadeOutInProgress, isWakeSequenceActive, isSleepPrepActive, isLockdown, isEarlyWakeActive, isKitchenOccupied, isPantryOccupied |
 | **Number** | 3 | alarmTime, remainingSolarGeneration, thisHourSolarGeneration |

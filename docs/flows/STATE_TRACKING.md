@@ -121,8 +121,15 @@ are checked again at expiry, with a final presence check immediately before `isM
 
 Eight Sleep bed-presence and sleep-stage sensors are deliberately not authoritative inputs to
 `isMasterAsleep`. Their transient `off`, `awake`, `out`, `unknown`, and `unavailable` readings do
-not change the master sleep state. Waking continues to use the established local bedroom-door
-automation; the Eight Sleep alarm remains a separate wake-sequence trigger in Sleep Hygiene.
+not change the master sleep state. The Eight Sleep alarm remains a separate wake-sequence trigger in
+Sleep Hygiene.
+
+Opening the master bedroom door wakes the master bedroom. Name a contact sensor (a `binary_sensor`,
+`on` = open) as `master_bedroom_door_sensor` in `state_tracking_config.yaml`. When it changes from
+`off` to `on` while `dayPhase` is `morning` and `isMasterAsleep` is true, state tracking clears
+`isMasterAsleep`. `isAnyoneAsleep` and the awake latch follow, and the other plugins react to those.
+A reading that returns from `unavailable` or `unknown` is not an opening. At any other day phase,
+or with no sensor named, the door does nothing.
 
 ## Arrival Announcements
 
@@ -260,6 +267,7 @@ flowchart TD
 | Entity | Timer | Action |
 |--------|-------|--------|
 | `light.primary_suite` | 1 minute off | Mark master asleep |
+| `master_bedroom_door_sensor` (optional) | Immediate | Opens in the morning phase: mark master awake |
 | `input_boolean.nick_near_home` | Immediate | Set didOwnerJustReturnHome |
 | `input_boolean.caroline_near_home` | Immediate | Set didOwnerJustReturnHome |
 

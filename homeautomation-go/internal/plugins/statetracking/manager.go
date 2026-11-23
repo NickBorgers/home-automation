@@ -75,6 +75,10 @@ type Manager struct {
 	carolineDepartureTime  time.Time
 	assistantDepartureTime time.Time
 
+	// masterBedroomDoorSensor is an optional contact sensor entity (on = open).
+	// Opening it in the morning wakes the master bedroom. Empty disables the feature.
+	masterBedroomDoorSensor string
+
 	// SoCo-CLI base URL for querying Sonos speaker groups (optional)
 	socoCliURL string
 
@@ -137,6 +141,12 @@ func (m *Manager) Start() error {
 	}
 	if err := m.subHelper.SubscribeToState("isAnyoneHome", m.handleAnyoneHomeChange); err != nil {
 		return fmt.Errorf("failed to subscribe to isAnyoneHome: %w", err)
+	}
+
+	if m.masterBedroomDoorSensor != "" {
+		if err := m.subHelper.SubscribeToEntity(m.masterBedroomDoorSensor, m.handleMasterBedroomDoorChange); err != nil {
+			return fmt.Errorf("failed to subscribe to %s: %w", m.masterBedroomDoorSensor, err)
+		}
 	}
 
 	// Subscribe to Nick's presence for arrival announcements
@@ -263,6 +273,43 @@ func (m *Manager) handlePrimarySuiteLightsChange(entityID string, oldState, newS
 		m.logger.Info("Primary suite lights turned on, canceling sleep detection")
 		// Update shadow state
 		m.shadowTracker.UpdateSleepDetectionTimer(false)
+	}
+}
+
+// SetMasterBedroomDoorSensor names the contact sensor on the master bedroom door
+// (on = open). Call it before Start. An empty ID turns door wake off.
+func (m *Manager) SetMasterBedroomDoorSensor(entityID string) {
+	m.masterBedroomDoorSensor = entityID
+}
+
+// handleMasterBedroomDoorChange wakes the master bedroom when its door opens in
+// the morning day phase while the master bedroom is marked asleep.
+// Only a real closed -> open change counts. A sensor returning from
+// unavailable or unknown is not a door opening.
+func (m *Manager) handleMasterBedroomDoorChange(entityID string, oldState, newState *ha.State) {
+	if oldState == nil || newState == nil || oldState.State != "off" || newState.State != "on" {
+		return
+	}
+
+	dayPhase, err := m.stateManager.GetString("dayPhase")
+	if err != nil || dayPhase != "morning" {
+		m.logger.Debug("Master bedroom door opened outside the morning phase, not waking",
+			zap.String("day_phase", dayPhase))
+		return
+	}
+	isMasterAsleep, err := m.stateManager.GetBool("isMasterAsleep")
+	if err != nil || !isMasterAsleep {
+		return
+	}
+
+	m.logger.Info("Master bedroom door opened in the morning, marking master awake",
+		zap.String("entity_id", entityID))
+	if err := m.stateManager.SetBool("isMasterAsleep", false); err != nil {
+		if errors.Is(err, state.ErrReadOnlyMode) {
+			m.logger.Debug("Skipping isMasterAsleep update in read-only mode")
+		} else {
+			m.logger.Error("Failed to clear isMasterAsleep", zap.Error(err))
+		}
 	}
 }
 
