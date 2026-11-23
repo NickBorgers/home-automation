@@ -2,6 +2,7 @@ package lighting
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -780,7 +781,18 @@ func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase 
 	sceneName := sceneGroup + " " + dayPhase
 	sceneEntityID := "scene." + toSnakeCase(sceneName)
 
+	// Home Assistant accepts a service call for a missing entity without an error,
+	// so check the entity exists before calling and before claiming success.
+	sceneProblem := m.sceneProblem(sceneEntityID)
+
 	if m.readOnly {
+		if sceneProblem != "" {
+			m.logger.Warn("READ-ONLY: Scene to activate has a problem: "+sceneProblem,
+				zap.String("room", room.HueGroup),
+				zap.String("scene", dayPhase),
+				zap.String("entity_id", sceneEntityID),
+				zap.String("trigger", trigger))
+		}
 		m.logger.Info("READ-ONLY: Would activate scene",
 			zap.String("room", room.HueGroup),
 			zap.String("area_id", room.HASSAreaID),
@@ -791,7 +803,24 @@ func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase 
 		m.recordAction(room.HueGroup, "activate_scene",
 			fmt.Sprintf("Would activate scene '%s'", dayPhase),
 			dayPhase, false, trigger)
-		m.activateCompanionScenes(ctx, room, dayPhase, nil)
+		// Mirror live mode: companions are skipped when the main scene is missing.
+		if sceneProblem == "" {
+			m.activateCompanionScenes(ctx, room, dayPhase, nil)
+		}
+		return
+	}
+
+	if sceneProblem != "" {
+		// Companions are skipped too, matching how a failed service call is handled:
+		// they only run after the main scene succeeded.
+		m.logger.Warn("Failed to activate scene: "+sceneProblem,
+			zap.String("room", room.HueGroup),
+			zap.String("scene", dayPhase),
+			zap.String("entity_id", sceneEntityID),
+			zap.String("trigger", trigger))
+		m.recordAction(room.HueGroup, "activate_scene_failed",
+			fmt.Sprintf("Scene '%s' not activated: %s (%s)", dayPhase, sceneProblem, sceneEntityID),
+			"", false, trigger)
 		return
 	}
 
@@ -926,6 +955,28 @@ func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase 
 		dayPhase, false, trigger)
 }
 
+// sceneProblem returns a reason the scene entity cannot be activated, or "" if
+// it can. It reports a missing entity or one whose state is "unavailable".
+// If the lookup itself fails (for example Home Assistant is unreachable), it
+// returns "" so activation proceeds as before: the service call will then
+// succeed or fail on its own, and a flaky lookup must not stop the lights.
+func (m *Manager) sceneProblem(entityID string) string {
+	st, err := m.haClient.GetState(entityID)
+	if err != nil {
+		if errors.Is(err, ha.ErrEntityNotFound) {
+			return "scene entity does not exist"
+		}
+		m.logger.Warn("Could not check that scene entity exists; activating anyway",
+			zap.String("entity_id", entityID),
+			zap.Error(err))
+		return ""
+	}
+	if st != nil && st.State == "unavailable" {
+		return "scene entity is unavailable"
+	}
+	return ""
+}
+
 // companionSuffix formats the companion scenes that were activated for the shadow
 // state action description. It returns an empty string when there were none.
 func companionSuffix(activated []string) string {
@@ -938,7 +989,9 @@ func companionSuffix(activated []string) string {
 // activateCompanionScenes activates each of the room's companion_scenes for the
 // given day phase with scene.turn_on, using the same transition (nil for none)
 // as the main scene. It must only be called after the main scene succeeded.
-// A failing companion is logged at warn level and skipped; the remaining
+// A companion whose scene entity is missing or unavailable is skipped with a
+// warning, without a service call. A companion whose service call itself fails
+// is also logged at warn level and skipped. In both cases the remaining
 // companions still run. If ctx is cancelled it stops quietly. In READ_ONLY mode
 // it only logs. It returns the entity IDs that were activated.
 func (m *Manager) activateCompanionScenes(ctx context.Context, room *RoomConfig, dayPhase string,
@@ -946,6 +999,19 @@ func (m *Manager) activateCompanionScenes(ctx context.Context, room *RoomConfig,
 	var activated []string
 	for _, base := range room.CompanionScenes {
 		entityID := "scene." + toSnakeCase(base+" "+dayPhase)
+
+		if problem := m.sceneProblem(entityID); problem != "" {
+			if m.readOnly {
+				m.logger.Warn("READ-ONLY: Companion scene has a problem: "+problem,
+					zap.String("room", room.HueGroup),
+					zap.String("entity_id", entityID))
+			} else {
+				m.logger.Warn("Failed to activate companion scene: "+problem,
+					zap.String("room", room.HueGroup),
+					zap.String("entity_id", entityID))
+			}
+			continue
+		}
 
 		if m.readOnly {
 			m.logger.Info("READ-ONLY: Would activate companion scene",

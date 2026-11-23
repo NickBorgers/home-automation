@@ -296,6 +296,26 @@ The 2026-05-25 production incident — three rapid scene recalls during
 arrival, dynamic palette failure, bedroom lights going off, statetracking
 incorrectly marking the occupants as asleep — drove both protections.
 
+### Pre-activation entity check
+
+Home Assistant accepts a service call for a scene entity that does not exist
+and returns no error. Before it recalls a scene, the plugin therefore reads
+the scene entity's state:
+
+- Missing entity, or state `unavailable`: the plugin logs a warning
+  (`Failed to activate scene: scene entity does not exist` or `... is
+  unavailable`) with the room, scene, entity ID and trigger. It makes no
+  service call, does not log success, skips the room's companions, and
+  records an `activate_scene_failed` action in the room's shadow state
+  (visible at `/api/shadow/lighting`). The same check covers the single-step
+  recall and the `has_dynamics` two-step recall.
+- Lookup fails for another reason (for example Home Assistant is
+  unreachable): the plugin logs a warning and activates as before, so a
+  flaky lookup cannot keep the lights off. The service call reports its own
+  error.
+- In `READ_ONLY` mode the plugin only logs a warning that the scene is
+  missing. The shadow action stays `activate_scene` ("would activate").
+
 ### Companion scenes
 
 A room can list extra scenes in `companion_scenes` in `hue_config.yaml`. They
@@ -313,9 +333,11 @@ No room in `hue_config.yaml` lists a companion now. The Kitchen did, but its und
   wait for the dynamic phase.
 - They use `scene.turn_on` with the same `transition` as the main scene,
   including the presence-trigger cap.
-- A failing companion is logged at warn level and skipped. Later companions
-  still run, and the main scene is never undone. A cancelled context stops
-  the loop quietly.
+- A companion whose scene entity is missing or unavailable in Home Assistant
+  is detected before the service call and skipped with a warning. A companion
+  whose service call itself fails is also logged at warn level and skipped.
+  In both cases later companions still run, and the main scene is never
+  undone. A cancelled context stops the loop quietly.
 - In `READ_ONLY` mode each companion is only logged ("Would activate").
 - Shadow state: the room's single `activate_scene` action reason lists the
   companions that were activated (`... + companions: scene.x_morning`).

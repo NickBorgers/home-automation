@@ -228,6 +228,7 @@ func TestActivateScene(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := testutil.NewEnv(t)
+			seedScenes(env.MockHA, "Living Room", "Primary Suite", "Kitchen")
 			config := createTestConfig()
 			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, tt.readOnly, nil)
 
@@ -396,6 +397,7 @@ func TestEvaluateAndActivateRoom(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := testutil.NewEnv(t)
+			seedScenes(env.MockHA, "Living Room", "Primary Suite", "Kitchen")
 			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
 
 			_ = env.StateMgr.SetBool("isAnyoneHome", tt.isAnyoneHome)
@@ -557,6 +559,7 @@ func TestIsTopicRelevant(t *testing.T) {
 func TestEvaluateAllRooms_IsAnyoneHomeTriggersAnyoneHomeAndAwakeRooms(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)
+	seedScenes(env.MockHA, "Sitting Room", "Kitchen", "Living Room")
 	config := &HueConfig{
 		Rooms: []RoomConfig{
 			{
@@ -662,6 +665,7 @@ func TestHandleSunEventChange(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := testutil.NewEnv(t)
+			seedScenes(env.MockHA, "Living Room", "Primary Suite", "Kitchen")
 			config := createTestConfig()
 			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
 
@@ -718,6 +722,7 @@ func TestHandleTVStateChange(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := testutil.NewEnv(t)
+			seedScenes(env.MockHA, "Living Room", "Primary Suite", "Kitchen")
 			config := createTestConfig()
 			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
 
@@ -805,6 +810,7 @@ func TestHandleSleepStateChange(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := testutil.NewEnv(t)
+			seedScenes(env.MockHA, "Living Room", "Primary Suite", "Kitchen")
 			config := createTestConfig()
 			manager := NewManager(context.Background(), env.MockHA, env.StateMgr, config, env.Logger, false, nil)
 
@@ -958,6 +964,7 @@ func dynamicScenesConfig() *HueConfig {
 func TestEvaluateAndActivateRoom_DebounceCoalesces(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)
+	seedScenes(env.MockHA, "Primary Suite", "Kitchen")
 	cfg := dynamicScenesConfig()
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, cfg, env.Logger, false, nil)
 
@@ -995,6 +1002,7 @@ func TestEvaluateAndActivateRoom_DebounceCoalesces(t *testing.T) {
 func TestEvaluateAndActivateRoom_DebounceIsolatesRooms(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)
+	seedScenes(env.MockHA, "Primary Suite", "Kitchen")
 	cfg := dynamicScenesConfig()
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, cfg, env.Logger, false, nil)
 
@@ -1037,6 +1045,7 @@ func TestEvaluateAndActivateRoom_DebounceIsolatesRooms(t *testing.T) {
 func TestActivateScene_TwoStepForDynamicRoom(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)
+	seedScenes(env.MockHA, "Living Room", "Primary Suite", "Kitchen")
 	cfg := dynamicScenesConfig()
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, cfg, env.Logger, false, nil)
 
@@ -1072,6 +1081,7 @@ func TestActivateScene_TwoStepForDynamicRoom(t *testing.T) {
 func TestActivateScene_DynamicRoomFallsBackToSceneTurnOn(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)
+	seedScenes(env.MockHA, "Living Room", "Primary Suite", "Kitchen")
 	cfg := dynamicScenesConfig()
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, cfg, env.Logger, false, nil)
 
@@ -1095,6 +1105,7 @@ func TestActivateScene_DynamicRoomFallsBackToSceneTurnOn(t *testing.T) {
 func TestActivateScene_SingleStepForNonDynamicRoom(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)
+	seedScenes(env.MockHA, "Living Room", "Primary Suite", "Kitchen")
 	cfg := dynamicScenesConfig()
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, cfg, env.Logger, false, nil)
 
@@ -1114,6 +1125,7 @@ func TestActivateScene_SingleStepForNonDynamicRoom(t *testing.T) {
 func TestActivateScene_TwoStepAbortsOnContextCancel(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)
+	seedScenes(env.MockHA, "Living Room", "Primary Suite", "Kitchen")
 	cfg := dynamicScenesConfig()
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, cfg, env.Logger, false, nil)
 
@@ -1147,6 +1159,7 @@ func TestActivateScene_TwoStepAbortsOnContextCancel(t *testing.T) {
 func TestEvaluateAndActivateRoom_DebounceAndTwoStepEndToEnd(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)
+	seedScenes(env.MockHA, "Primary Suite", "Kitchen")
 	cfg := dynamicScenesConfig()
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, cfg, env.Logger, false, nil)
 
@@ -1214,4 +1227,17 @@ func filterSceneActivationCalls(calls []ha.ServiceCall) []ha.ServiceCall {
 		}
 	}
 	return out
+}
+
+// scenePhases are the day phases that seedScenes creates scene entities for.
+var scenePhases = []string{"morning", "day", "afternoon", "dusk", "evening", "winddown", "night", "sunset"}
+
+// seedScenes creates the scene entities Home Assistant would hold for each
+// group and phase, so the existence check before scene activation passes.
+func seedScenes(mock *ha.MockClient, groups ...string) {
+	for _, g := range groups {
+		for _, p := range scenePhases {
+			mock.SetState("scene."+toSnakeCase(g+" "+p), "2026-01-01T00:00:00+00:00", nil)
+		}
+	}
 }

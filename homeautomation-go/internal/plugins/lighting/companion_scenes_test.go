@@ -122,6 +122,7 @@ func TestActivateScene_CompanionScenes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			env := testutil.NewEnv(t)
+			seedScenes(env.MockHA, "Kitchen", "Kitchen Under Cabinet", "Kitchen Island", "Kitchen Pantry")
 			client := &failingSceneClient{MockClient: env.MockHA, failEntities: tt.failEntities}
 			manager := NewManager(context.Background(), client, env.StateMgr, &HueConfig{}, env.Logger, tt.readOnly, nil)
 
@@ -144,6 +145,7 @@ func TestActivateScene_CompanionScenes(t *testing.T) {
 func TestActivateScene_CompanionFailureKeepsMainScene(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)
+	seedScenes(env.MockHA, "Kitchen", "Kitchen Under Cabinet", "Kitchen Island", "Kitchen Pantry")
 	client := &failingSceneClient{
 		MockClient:   env.MockHA,
 		failEntities: map[string]bool{"scene.kitchen_under_cabinet_morning": true},
@@ -160,6 +162,7 @@ func TestActivateScene_CompanionFailureKeepsMainScene(t *testing.T) {
 func TestActivateScene_CompanionsNotRunWhenMainSceneFails(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)
+	seedScenes(env.MockHA, "Kitchen", "Kitchen Under Cabinet", "Kitchen Island", "Kitchen Pantry")
 	client := &failingSceneClient{
 		MockClient:   env.MockHA,
 		failEntities: map[string]bool{"scene.kitchen_morning": true},
@@ -174,6 +177,7 @@ func TestActivateScene_CompanionsNotRunWhenMainSceneFails(t *testing.T) {
 func TestActivateScene_CompanionShadowDescription(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)
+	seedScenes(env.MockHA, "Kitchen", "Kitchen Under Cabinet", "Kitchen Island", "Kitchen Pantry")
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, &HueConfig{}, env.Logger, false, nil)
 
 	manager.activateScene(context.Background(), companionRoom(nil, false, "Kitchen Under Cabinet"), "morning", "dayPhase")
@@ -190,6 +194,7 @@ func TestActivateScene_CompanionsRunForDynamicRoom(t *testing.T) {
 	t.Run("two-step path", func(t *testing.T) {
 		t.Parallel()
 		env := testutil.NewEnv(t)
+		seedScenes(env.MockHA, "Kitchen", "Kitchen Under Cabinet", "Kitchen Island", "Kitchen Pantry")
 		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, &HueConfig{}, env.Logger, false, nil)
 		mockClock := clock.NewMockClock(time.Now())
 		manager.SetClock(mockClock)
@@ -209,6 +214,7 @@ func TestActivateScene_CompanionsRunForDynamicRoom(t *testing.T) {
 	t.Run("fallback path", func(t *testing.T) {
 		t.Parallel()
 		env := testutil.NewEnv(t)
+		seedScenes(env.MockHA, "Kitchen", "Kitchen Under Cabinet", "Kitchen Island", "Kitchen Pantry")
 		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, &HueConfig{}, env.Logger, false, nil)
 		env.MockHA.SetServiceError("hue", "activate_scene", errors.New("invalid_format"))
 
@@ -221,6 +227,7 @@ func TestActivateScene_CompanionsRunForDynamicRoom(t *testing.T) {
 	t.Run("main static phase fails and fallback fails", func(t *testing.T) {
 		t.Parallel()
 		env := testutil.NewEnv(t)
+		seedScenes(env.MockHA, "Kitchen", "Kitchen Under Cabinet", "Kitchen Island", "Kitchen Pantry")
 		manager := NewManager(context.Background(), env.MockHA, env.StateMgr, &HueConfig{}, env.Logger, false, nil)
 		env.MockHA.SetServiceError("hue", "activate_scene", errors.New("invalid_format"))
 		env.MockHA.SetServiceError("scene", "turn_on", errors.New("boom"))
@@ -234,6 +241,7 @@ func TestActivateScene_CompanionsRunForDynamicRoom(t *testing.T) {
 func TestActivateScene_CompanionsStopOnCancelledContext(t *testing.T) {
 	t.Parallel()
 	env := testutil.NewEnv(t)
+	seedScenes(env.MockHA, "Kitchen", "Kitchen Under Cabinet", "Kitchen Island", "Kitchen Pantry")
 	manager := NewManager(context.Background(), env.MockHA, env.StateMgr, &HueConfig{}, env.Logger, false, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

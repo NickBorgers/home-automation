@@ -546,3 +546,42 @@ func indexOf(s, substr string) int {
 	}
 	return -1
 }
+
+// TestScenario_MissingSceneIsNotActivated validates that when the scene entity
+// for a room and day phase does not exist in Home Assistant, the lighting
+// plugin makes no scene service call and records a failed action instead of
+// claiming success. Home Assistant would accept the call silently.
+func TestScenario_MissingSceneIsNotActivated(t *testing.T) {
+	t.Parallel()
+	server, lightingMgr, stateManager, cleanup := setupLightingScenarioTest(t)
+	defer cleanup()
+
+	// GIVEN: Someone is home and awake, and no scene entities exist for the phase "predawn"
+	t.Log("GIVEN: Someone is home and awake; no scene entities exist for the phase 'predawn'")
+	server.SetState("input_boolean.anyone_home", "on", map[string]interface{}{})
+	server.SetState("input_boolean.anyone_home_and_awake", "on", map[string]interface{}{})
+	waitForBoolState(t, stateManager, "isAnyoneHomeAndAwake", true, "isAnyoneHomeAndAwake should be true")
+	waitForProcessing(t, stateManager)
+	waitForServiceCallsToStabilize(t, server, 200*time.Millisecond)
+	snapshot := server.ServiceCallCount()
+
+	// WHEN: The day phase changes to one with no scenes in Home Assistant
+	t.Log("WHEN: Day phase changes to predawn")
+	server.SetState("input_text.day_phase", "predawn", map[string]interface{}{})
+
+	// THEN: The plugin records the failure and makes no scene call
+	t.Log("THEN: A failed action is recorded and no scene service call is made")
+	waitForCondition(t, func() bool {
+		for _, room := range lightingMgr.GetShadowState().Outputs.Rooms {
+			if room.ActionType == "activate_scene_failed" {
+				return true
+			}
+		}
+		return false
+	}, "a room should record activate_scene_failed")
+	waitForServiceCallsToStabilize(t, server, 200*time.Millisecond)
+
+	calls := server.GetServiceCallsSince(snapshot)
+	assert.Empty(t, filterServiceCalls(calls, "scene", "turn_on"), "no scene.turn_on for a missing scene")
+	assert.Empty(t, filterServiceCalls(calls, "hue", "activate_scene"), "no hue.activate_scene for a missing scene")
+}
