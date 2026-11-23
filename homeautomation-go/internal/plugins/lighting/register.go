@@ -43,6 +43,7 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 	}
 
 	manager := NewManager(ctx.ShutdownCtx, haClient, stateManager, config, ctx.Logger, ctx.ReadOnly, ctx.Registry)
+	manager.SetLightHolds(ctx.LightHolds)
 
 	// Lux-target control needs sun and schedule times for its curve anchors.
 	if config.LuxCurve != nil {

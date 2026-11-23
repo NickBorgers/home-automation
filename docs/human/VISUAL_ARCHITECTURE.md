@@ -69,6 +69,7 @@ graph TB
             PkgHA[pkg/ha/interfaces.go]
             PkgState[pkg/state/interfaces.go]
             OccupancyHub[Occupancy Hub<br/>pkg/occupancy/]
+            LightHoldsHub[Light Holds Hub<br/>pkg/lighthold/]
         end
 
         subgraph "Configuration"
@@ -120,6 +121,7 @@ graph TB
     Lighting -->|Get/Set State| StateManager
     Lighting -->|Call Services| HAClient
     Lighting -.->|Register Shadow| ShadowTracker
+    Lighting -->|Respect cross-plugin light holds| LightHoldsHub
 
     Energy -->|Get/Set State| StateManager
     Energy -.->|Register Shadow| ShadowTracker

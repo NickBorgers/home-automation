@@ -119,6 +119,92 @@ func TestScenario_RoomPresence_FalsePersonDoesNotOccupyKitchen(t *testing.T) {
 	assert.False(t, s.Outputs.ActiveTracks[0].Confirmed)
 }
 
+// silentTrackConfig shortens the timings, so a scenario test sees a silent track end in a few seconds.
+func silentTrackConfig(cfg *roompresence.Config) {
+	idle := time.Second // stands in for the kitchen's 20 min
+	cfg.HandoffWindow = 100 * time.Millisecond
+	cfg.TrackSilenceTimeout = 2 * time.Second // stands in for the 60 s default
+	cfg.Areas["kitchen"].IdleLimit = &idle
+}
+
+// waitForSilentEnd waits until the plugin has ended a track because Frigate stopped sending messages for it.
+func waitForSilentEnd(t *testing.T, mgr *roompresence.Manager, id string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		for _, r := range mgr.GetShadowState().Outputs.RecentTracks {
+			if r.ID == id && strings.Contains(r.Outcome, "no update from Frigate") {
+				return true
+			}
+		}
+		return false
+	}, 10*time.Second, 50*time.Millisecond, "the silent track %s is ended", id)
+}
+
+// GIVEN a person came into the kitchen
+// WHEN Frigate stops sending messages for their track and never sends end
+// THEN the plugin ends the track, and isKitchenOccupied turns off after the kitchen's idle limit
+//
+// INVARIANT: a track that Frigate never ends does not hold its token forever. Before the fix the silent
+// track stayed active, so its token could not expire and the kitchen stayed occupied.
+func TestScenario_RoomPresence_SilentTrackDoesNotKeepKitchenOccupied(t *testing.T) {
+	server, mgr, cleanup := setupRoomPresenceScenario(t, silentTrackConfig)
+	defer cleanup()
+
+	t.Log("GIVEN: a person comes out of the hall doorway into the kitchen")
+	server.SetState("input_boolean.kitchen_occupied", "off", nil)
+	publishFrigate(t, server, "update", "a", "cam_kitchen", []string{"kitchen_to_hall", "kitchen"}, "kitchen")
+	waitForServerState(t, server, "input_boolean.kitchen_occupied", "on")
+
+	t.Log("WHEN: Frigate sends nothing more for the track, not even end")
+	waitForSilentEnd(t, mgr, "a")
+
+	t.Log("THEN: the kitchen token expires after the idle limit, and isKitchenOccupied turns off")
+	waitForServerState(t, server, "input_boolean.kitchen_occupied", "off")
+	assert.Empty(t, mgr.GetShadowState().Outputs.Tokens)
+	assert.Empty(t, mgr.GetShadowState().Outputs.ActiveTracks)
+}
+
+// GIVEN two people are home, and one of them came into the kitchen
+// WHEN Frigate stops sending messages for that person's track, then finds them again with a new track
+// THEN the new track takes back the person's token, and there is still one token
+//
+// INVARIANT: one person has one token. Before the fix the silent track still held the token, so the new
+// track of the same person got a second token.
+func TestScenario_RoomPresence_NewTrackAfterSilentTrackKeepsOneToken(t *testing.T) {
+	server, mgr, cleanup := setupRoomPresenceScenario(t, func(cfg *roompresence.Config) {
+		silentTrackConfig(cfg)
+		long := time.Hour // the token must outlive the silent track here
+		cfg.Areas["kitchen"].IdleLimit = &long
+	})
+	defer cleanup()
+
+	t.Log("GIVEN: two people are home, and one comes out of the hall doorway into the kitchen")
+	server.SetState("input_boolean.nick_home", "on", nil)
+	server.SetState("input_boolean.caroline_home", "on", nil)
+	server.SetState("input_boolean.assistant_here", "off", nil)
+	server.SetState("input_boolean.have_guests", "off", nil)
+	require.Eventually(t, func() bool {
+		s := mgr.GetShadowState()
+		return s.Inputs.Current["isCarolineHome"] == true && s.Inputs.Current["isNickHome"] == true
+	}, 5*time.Second, 10*time.Millisecond)
+	publishFrigate(t, server, "update", "a", "cam_kitchen", []string{"kitchen_to_hall", "kitchen"}, "kitchen")
+	require.Eventually(t, func() bool { return mgr.Occupied("kitchen") }, 5*time.Second, 10*time.Millisecond)
+
+	t.Log("WHEN: Frigate sends nothing more for the track, then finds the person again with a new track")
+	waitForSilentEnd(t, mgr, "a")
+	publishFrigate(t, server, "update", "b", "cam_kitchen", []string{"kitchen"}, "kitchen")
+
+	t.Log("THEN: the new track holds the person's token, and there is one token")
+	require.Eventually(t, func() bool {
+		a := mgr.GetShadowState().Outputs.ActiveTracks
+		return len(a) == 1 && a[0].ID == "b"
+	}, 5*time.Second, 10*time.Millisecond)
+	s := mgr.GetShadowState().Outputs
+	assert.Equal(t, "resume", s.ActiveTracks[0].Rule)
+	require.Len(t, s.Tokens, 1, "one person, one token")
+	assert.Equal(t, s.ActiveTracks[0].Token, s.Tokens[0].ID)
+}
+
 // GIVEN a person walked into the study, which no camera sees, and the plugin keeps tokens in a helper
 // WHEN the plugin restarts, as it does after an image update
 // THEN the study is still occupied, and a seen area's token is not brought back

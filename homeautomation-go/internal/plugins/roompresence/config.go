@@ -32,6 +32,7 @@ const ignoreZone = "ignore"
 const (
 	defaultHandoffWindow          = 5 * time.Second
 	defaultCameraHeartbeatTimeout = 30 * time.Second
+	defaultTrackSilenceTimeout    = 60 * time.Second
 	defaultNobodyHomeDelay        = 5 * time.Minute
 	defaultExitWindow             = 30 * time.Second
 	defaultArrivalWindow          = 60 * time.Second
@@ -54,6 +55,12 @@ type Config struct {
 
 	// CameraHeartbeatTimeout is how long a camera may stay silent before its areas become unknown.
 	CameraHeartbeatTimeout time.Duration `yaml:"camera_heartbeat_timeout"`
+
+	// TrackSilenceTimeout is how long a track may go without a Frigate message before the plugin ends it as
+	// if Frigate had sent end. Frigate sometimes stops sending messages for a track and never ends it. It
+	// keeps sending updates for a person who stands still, every few seconds. Must be longer than
+	// handoff_window.
+	TrackSilenceTimeout time.Duration `yaml:"track_silence_timeout"`
 
 	// NobodyHomeDelay is how long isAnyoneHome must stay false before every token is removed.
 	NobodyHomeDelay time.Duration `yaml:"nobody_home_delay"`
@@ -173,6 +180,9 @@ func (c *Config) applyDefaults() {
 	if c.CameraHeartbeatTimeout == 0 {
 		c.CameraHeartbeatTimeout = defaultCameraHeartbeatTimeout
 	}
+	if c.TrackSilenceTimeout == 0 {
+		c.TrackSilenceTimeout = defaultTrackSilenceTimeout
+	}
 	if c.NobodyHomeDelay == 0 {
 		c.NobodyHomeDelay = defaultNobodyHomeDelay
 	}
@@ -231,6 +241,11 @@ func (c *Config) validate() error {
 				}
 			}
 		}
+	}
+	if c.TrackSilenceTimeout <= c.HandoffWindow {
+		// A track that went quiet within the hand-off window may still be followed by the doorway twin
+		// rule, so it must not be ended before the window is over.
+		errs = append(errs, "track_silence_timeout must be longer than handoff_window")
 	}
 	if c.ExitWindow < 0 {
 		errs = append(errs, "exit_window must be positive")

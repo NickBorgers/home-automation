@@ -730,8 +730,15 @@ type Context struct {
     ConfigDir    string
     SoCoCliURL   string        // SoCo-CLI HTTP API base URL (optional, for direct speaker control and Tidal playback)
     Occupancy    *occupancy.Hub // Room presence area states shared between plugins (nil in some tests)
+    LightHolds   *lighthold.Hub // Time-limited per-entity light holds shared between plugins (nil in some tests)
 }
 ```
+
+Plugins that turn on a light which can be part of a lighting room area must call
+`ctx.LightHolds.Hold(entityID, owner, until)` for as long as they require it to stay on. Every hold needs
+an end time so a stopped holder cannot protect a light indefinitely. Release it early with
+`ctx.LightHolds.Release(entityID, owner)`. The holder remains responsible for deciding whether to turn
+the light off when its hold ends.
 
 #### Step 2: Create Plugin Registry
 

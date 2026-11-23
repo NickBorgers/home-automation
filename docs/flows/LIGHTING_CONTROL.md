@@ -10,6 +10,18 @@ The lighting plugin provides intelligent lighting control by:
 3. Managing transitions for natural light progression
 4. Supporting special scenarios (wake-up, away mode)
 
+## Cross-plugin light holds
+
+Plugins can protect a time-limited lighting decision through the shared `pkg/lighthold` hub. When any
+hold is active, the lighting plugin resolves a room area to its light entities and excludes held entities
+from `light.turn_off`; other lights in the room still turn off normally. Holds are scoped by entity and
+owner and must always have an end time. Expired holds are ignored, and the plugin that created a hold
+decides what to do when it ends.
+
+If a plugin turns on a light that can belong to a lighting room's Home Assistant area, it must hold that
+entity for as long as it needs the light to remain on. With no active holds, lighting keeps the existing
+area-based service call unchanged.
+
 ## Lighting Scene Selection
 
 ```mermaid
