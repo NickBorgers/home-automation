@@ -35,10 +35,9 @@ concurrency:
 
 env:
   CI_IMAGE: ghcr.io/nickborgers/home-automation-ci:latest
-  # Loki address for scripts/loki-query.sh inside agent containers. A repo
-  # variable, not source: the runner may reach only Loki's direct API, and
-  # that address stays out of this public repo. Unset means the helper's
-  # default, which the runner cannot reach.
+  # Optional override of the Loki address for scripts/loki-query.sh inside
+  # agent containers. Leave the repo variable unset: the runner reaches the
+  # helper default, the same URL developers use.
   LOKI_URL: ${{ vars.LOKI_URL }}
 
 jobs:

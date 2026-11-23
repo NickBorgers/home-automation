@@ -186,7 +186,7 @@ runs:
         # workspace. That broke every later host step (git, post-checkout)
         # with "detected dubious ownership". The image no longer has sudo.
         DOCKER_EXIT=0
-        # LOKI_URL comes from the calling workflow's env (vars.LOKI_URL).
+        # LOKI_URL is an optional override from the calling workflow (vars.LOKI_URL).
         docker run --rm \
           --name "$CI_AGENT_CONTAINER_NAME" \
           --init \
