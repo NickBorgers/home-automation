@@ -107,6 +107,7 @@ func TestConfig_Defaults(t *testing.T) {
 	assert.Equal(t, ModeLogOnly, cfg.Mode)
 	assert.Equal(t, defaultHandoffWindow, cfg.HandoffWindow)
 	assert.Equal(t, defaultCameraHeartbeatTimeout, cfg.CameraHeartbeatTimeout)
+	assert.Equal(t, defaultTrackSilenceTimeout, cfg.TrackSilenceTimeout)
 	assert.Equal(t, defaultNobodyHomeDelay, cfg.NobodyHomeDelay)
 	assert.Equal(t, defaultExitWindow, cfg.ExitWindow)
 	assert.Equal(t, defaultArrivalWindow, cfg.ArrivalWindow)
@@ -135,6 +136,8 @@ func TestConfig_Invalid(t *testing.T) {
 		"approach without exit":  "room_presence:\n  areas: {den: {leads_outside: true, approach_sensors: [b.y], entry_sensors: [b.z]}}\n",
 		"approach is exit":       "room_presence:\n  areas: {den: {leads_outside: true, exit_sensors: [b.x], approach_sensors: [b.x], entry_sensors: [b.z]}}\n",
 		"lead past window":       "room_presence:\n  approach_lead: 2m\n  arrival_window: 1m\n  areas: {den: {}}\n",
+		"silence within handoff": "room_presence:\n  handoff_window: 10s\n  track_silence_timeout: 10s\n  areas: {den: {}}\n",
+		"handoff past default":   "room_presence:\n  handoff_window: 2m\n  areas: {den: {}}\n",
 	}
 	for name, yml := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -587,6 +590,139 @@ func TestReconnected_EndsOpenTracks(t *testing.T) {
 	s.tr.Reconnected(at(2))
 	assert.Empty(t, s.tr.active)
 	s.occupied("study")
+}
+
+// Frigate sometimes stops sending messages for a track and never sends end. After track_silence_timeout
+// the plugin ends the track itself, and the end rules apply as if Frigate had ended it.
+func TestSilentTrack_EndedAfterTimeout(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "kitchen")
+	s.event(1, "update", "a", "cam_kitchen", []string{"kitchen"}, "kitchen")
+	s.event(2, "update", "a", "cam_kitchen", []string{"kitchen"}, "kitchen")
+	require.Equal(t, ruleResume, s.tr.active["a"].rule)
+
+	s.tick(2 + 60)
+	assert.Contains(t, s.tr.active, "a", "the track may stay silent for the whole timeout")
+	s.tick(2 + 61)
+	assert.Empty(t, s.tr.active)
+	last := s.tr.ended[len(s.tr.ended)-1]
+	assert.Equal(t, "ended: no update from Frigate for 1m0s; token stays in kitchen", last.outcome)
+	assert.Equal(t, at(2), last.end, "the track counts as ended at its last message")
+	assert.False(t, s.tr.held("t1"), "the token is free again")
+	s.tokens(1)
+	s.occupied("kitchen")
+}
+
+// The end rules use the silent track's last zone, as for an end from Frigate.
+func TestSilentTrack_EndRulesUseLastZone(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "lounge")
+	s.event(1, "update", "a", "cam_lounge", []string{"lounge", "lounge_to_study"}, "lounge_to_study")
+	s.tick(62)
+	s.occupied("study")
+	s.empty("lounge")
+
+	// Nobody picked the person up in the hand-off window, which ended long ago: the token moves at once.
+	s2 := newScene(t)
+	s2.seed(0, "kitchen")
+	s2.event(1, "update", "a", "cam_kitchen", []string{"kitchen", "kitchen_to_hall"}, "kitchen_to_hall")
+	s2.tick(62)
+	s2.occupied("hall")
+	s2.empty("kitchen")
+}
+
+// A track that never entered a known zone is dropped, as an end from Frigate would drop it.
+func TestSilentTrack_NeverStartedIsDropped(t *testing.T) {
+	s := newScene(t)
+	s.event(1, "update", "a", "cam_lounge", []string{"garden"}, "garden")
+	s.tick(62)
+	assert.Empty(t, s.tr.active)
+	assert.Equal(t, "dropped: no update from Frigate for 1m0s", s.tr.ended[len(s.tr.ended)-1].outcome)
+	s.tokens(0)
+}
+
+// "A track that Frigate never ends does not keep the kitchen occupied forever." Once the silent track ends,
+// its token expires after the area's idle limit, counted from the track's last message.
+func TestSilentTrack_TokenIdlesOut(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "kitchen")
+	s.event(1, "update", "a", "cam_kitchen", []string{"kitchen"}, "kitchen")
+	for sec := 2.0; sec <= 1+19*60; sec += 10 {
+		s.tick(sec)
+	}
+	s.occupied("kitchen")
+	for sec := 2.0 + 19*60; sec <= 1+21*60; sec += 10 {
+		s.tick(sec)
+	}
+	s.empty("kitchen")
+	require.NotEmpty(t, s.tr.removed)
+	last := s.tr.removed[len(s.tr.removed)-1]
+	assert.Equal(t, "t1", last.Token)
+	assert.Equal(t, "idle for more than 20m0s", last.Reason)
+}
+
+// "When Frigate finds me again with a new track, I keep my token." Before silent tracks ended, the old track
+// held the token, so the new track got a second token for the same person.
+func TestSilentTrack_NewTrackResumesFreedToken(t *testing.T) {
+	s := newScene(t)
+	s.tr.SetPeople(at(0), 2, false, true)
+	s.seed(0, "kitchen")
+	s.event(1, "update", "a", "cam_kitchen", []string{"kitchen"}, "kitchen")
+	s.tick(62)
+
+	s.event(70, "update", "b", "cam_kitchen", []string{"kitchen"}, "kitchen")
+	assert.Equal(t, ruleResume, s.tr.active["b"].rule)
+	assert.Equal(t, "t1", s.tr.active["b"].tokenID)
+	s.tokens(1)
+}
+
+// A message that arrives after the plugin ended a silent track starts a new track with the same ID. It
+// takes the token back by the resume rule.
+func TestSilentTrack_LateMessageResumesToken(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "kitchen")
+	s.event(1, "update", "a", "cam_kitchen", []string{"kitchen"}, "kitchen")
+	s.tick(62)
+	require.Empty(t, s.tr.active)
+
+	s.event(90, "update", "a", "cam_kitchen", []string{"kitchen"}, "kitchen")
+	require.Contains(t, s.tr.active, "a")
+	assert.Equal(t, ruleResume, s.tr.active["a"].rule)
+	assert.Equal(t, "t1", s.tr.active["a"].tokenID)
+	s.tokens(1)
+}
+
+// A person who sits still keeps getting updates from Frigate every few seconds, so their track never ends.
+func TestSilentTrack_StillPersonIsNeverEnded(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "kitchen")
+	for sec := 1.0; sec <= 30*60; sec++ {
+		if int(sec)%10 == 1 {
+			s.event(sec, "update", "a", "cam_kitchen", []string{"kitchen"}, "kitchen")
+		}
+		s.tick(sec)
+	}
+	require.Contains(t, s.tr.active, "a")
+	assert.Equal(t, at(1), s.tr.active["a"].start, "still the first track")
+	assert.Empty(t, s.tr.ended)
+	assert.Empty(t, s.tr.removed)
+	s.occupied("kitchen")
+}
+
+// A camera that goes offline stops sending messages for its tracks too, so they end. Its areas are unknown,
+// so the freed token does not expire while the camera is down.
+func TestSilentTrack_OfflineCameraKeepsToken(t *testing.T) {
+	s := newScene(t)
+	s.tr.Heartbeat(at(0), "cam_hall")
+	s.seed(0, "hall")
+	s.event(1, "update", "a", "cam_hall", []string{"hall"}, "hall")
+
+	s.tick(32)
+	require.True(t, s.tr.unknown("hall"))
+	s.tick(62)
+	assert.Empty(t, s.tr.active)
+	s.tick(60 * 60) // far past the hall's 5 min idle limit
+	s.occupied("hall")
 }
 
 func TestUnknownZonesAndFalsePositives(t *testing.T) {

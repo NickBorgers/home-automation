@@ -378,7 +378,32 @@ func (t *Tracker) Reconnected(now time.Time) {
 	}
 }
 
-// Tick applies the time-based rules: camera health, hand-off timeouts, expiry and nobody home.
+// endSilentTracks ends every track that has sent nothing for track_silence_timeout, as if Frigate had ended
+// it. Frigate sometimes stops sending messages for a track and never ends it. Until the track ends, it holds
+// its token: the token cannot expire, and a new track of the same person cannot take it back.
+func (t *Tracker) endSilentTracks(now time.Time) {
+	limit := t.cfg.TrackSilenceTimeout
+	for _, id := range sortedKeys(t.active) {
+		tr := t.active[id]
+		if now.Sub(tr.lastUpdate) <= limit {
+			continue
+		}
+		silent := fmt.Sprintf("no update from Frigate for %s", limit)
+		if tr.started {
+			t.endTrack(now, tr, FrigateObject{CurrentZones: tr.current, EnteredZones: tr.zones})
+			tr.outcome = "ended: " + silent + "; " + tr.outcome
+		} else {
+			tr.outcome = "dropped: " + silent
+			t.finishTrack(now, tr)
+		}
+		// Frigate would have ended the track soon after its last message. The hand-off window counts from
+		// there, so the token of a person lost long ago is not handed to whoever appears next.
+		tr.end = tr.lastUpdate
+	}
+}
+
+// Tick applies the time-based rules: camera health, silent tracks, hand-off timeouts, expiry and nobody
+// home.
 func (t *Tracker) Tick(now time.Time) {
 	for _, c := range t.cameras {
 		if c.online && now.Sub(c.lastHeartbeat) > t.cfg.CameraHeartbeatTimeout {
@@ -386,6 +411,7 @@ func (t *Tracker) Tick(now time.Time) {
 		}
 	}
 	t.updateUnknownAreas(now)
+	t.endSilentTracks(now)
 
 	for _, area := range sortedKeys(t.exitEdges) {
 		t.matchExits(now, area)

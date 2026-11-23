@@ -10,6 +10,7 @@ room_presence:
   mode: log_only              # log_only | active
   handoff_window: 5s
   camera_heartbeat_timeout: 30s
+  track_silence_timeout: 60s
   nobody_home_delay: 5m
   exit_window: 30s
   areas:
