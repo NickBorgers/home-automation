@@ -53,6 +53,12 @@ const (
 	// is not held: a group's brightness or color can lag a fade, most of all when fades overlap.
 	// The confirmation waits and then compares the light with the final commanded values.
 	luxFadeSettleMargin = 5 * time.Second
+	// luxFreshReportWait is how long after the latest commanded transition ends a hold check waits
+	// for a fresh report: one that arrived after the fade ended. A bridge can report a light group
+	// minutes late, so a reading that arrived during the fade may still show a level from early in
+	// it. Such a stale reading never holds the room. When no fresh report arrives in this time,
+	// the check gives up without holding and the loop resumes.
+	luxFreshReportWait = 3 * time.Minute
 )
 
 // luxCommand is the last command sent (or, in log_only/READ_ONLY mode, that would be sent) to a room's cans.
@@ -112,6 +118,9 @@ type luxRoomState struct {
 	// checking is set while an off-path brightness or color report waits for a fresh read of the
 	// cans (confirmLuxHold). The loop sends nothing meanwhile, so a person's change is kept.
 	checking *luxHoldCheck
+	// lastReportAt is when the latest report from the cans arrived, on the plugin's clock. A hold
+	// check uses it to tell a fresh reading (arrived after the fade ended) from a stale one.
+	lastReportAt time.Time
 }
 
 // luxHoldCheck is a pending confirmation of a possible manual change to the cans.
@@ -120,6 +129,10 @@ type luxHoldCheck struct {
 	reason string    // why the first report looked manual
 	last   *ha.State // the most recent report or read
 	reads  int       // fresh reads made after the fade ended
+	// stale is the latest reading that arrived before the fade ended, or nil. A later fresh
+	// reading that is no farther from the commanded values may be a light group whose members
+	// have not all reported yet, so the check keeps waiting for them.
+	stale *ha.State
 	// skipped is set when an evaluation (a tick, a presence or condition change) was skipped
 	// during the check. A check that clears runs it then, not at the next tick.
 	skipped bool
@@ -677,7 +690,8 @@ func (m *Manager) sendLuxCommand(room *RoomConfig, cmd *luxCommand) error {
 
 // handleCansChange checks every report from the cans the moment it arrives. While a
 // brightness-or-color hold check is running (st.checking != nil), subsequent reports for the same
-// room are dropped; only the first off-path report triggers the loop. During a fade, a report
+// room only record their arrival time (the check reads the light itself); only the first off-path
+// report triggers the loop. During a fade, a report
 // counts as manual when it is not on the fade's path (manualChangeReason). A brightness or color
 // report off the path is confirmed by a fresh read before the room is held (confirmLuxHold),
 // because a light group's report can arrive late or out of order while fades settle. The loop
@@ -687,15 +701,16 @@ func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 	if newState == nil || m.readOnly || !luxActive(room) {
 		return
 	}
-	// Hue Sync and other plugins own the lights when the room is not "on".
-	if action, _ := m.evaluateConditions(room); action != "on" {
-		return
-	}
+	action, _ := m.evaluateConditions(room)
 	now := m.clock.Now()
 
 	m.luxMu.Lock()
 	st := m.luxRoom(room.HueGroup)
-	if st.held || st.cmd == nil || st.checking != nil {
+	// Every report counts toward freshness, also one that arrives while a check runs (the check
+	// reads the light itself) or while another plugin owns the lights.
+	st.lastReportAt = now
+	// Hue Sync and other plugins own the lights when the room is not "on".
+	if action != "on" || st.held || st.cmd == nil || st.checking != nil {
 		m.luxMu.Unlock()
 		return
 	}
@@ -708,7 +723,11 @@ func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 	}
 	if cmd.on && newState.State == "on" {
 		// A brightness or color difference: confirm it with a fresh read before holding.
-		m.scheduleLuxHoldCheck(room, st, &luxHoldCheck{reason: reason, last: newState})
+		check := &luxHoldCheck{reason: reason, last: newState}
+		if !luxReportFresh(cmd, now) {
+			check.stale = newState
+		}
+		m.scheduleLuxHoldCheck(room, st, check)
 		m.luxMu.Unlock()
 		m.logger.Info("Possible manual change; reading the cans again before holding",
 			zap.String("room", room.HueGroup),
@@ -773,8 +792,10 @@ func (m *Manager) scheduleLuxHoldCheck(room *RoomConfig, st *luxRoomState, check
 // while the fade runs, then up to luxHoldConfirmReads times. While the latest transition (plus
 // luxFadeSettleMargin) is still running, a read within the range the fades span is not held; the
 // check waits and then compares the light with the final commanded values. A jump outside that
-// range is decided at once. When the read fails, the first report decides, so a person's change
-// is not lost.
+// range is decided at once. After the fade, a reading within that range holds only when it
+// arrived after the fade ended (luxReportFresh): a bridge can report a light group minutes late.
+// The check waits up to luxFreshReportWait for such a report and gives up without holding when
+// none comes. When the read fails, the first report decides, so a person's change is not lost.
 func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
 	s, err := m.haClient.GetState(room.LuxControl.Cans)
 	action, _ := m.evaluateConditions(room)
@@ -794,8 +815,9 @@ func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
 	reason := check.reason
 	if err == nil && s != nil {
 		settled := luxFadeSettled(st.cmd, now)
-		if settled {
-			check.reads++ // a group may lag a running fade by several seconds, so only reads after it count
+		fresh := luxReportFresh(st.cmd, st.lastReportAt)
+		if !fresh {
+			check.stale = s
 		}
 		if reason = cansChangeReason(room, st, s, now); reason == "" {
 			skipped := check.skipped
@@ -807,13 +829,52 @@ func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
 			}
 			return
 		}
-		if s.State == "on" && !settled && withinRunningFades(st.cmd, st.previous, s, room.LuxControl.HasColorTemp()) {
+		within := s.State == "on" && withinRunningFades(st.cmd, st.previous, s, room.LuxControl.HasColorTemp())
+		if within && !settled {
 			// The fade is still running and the light is somewhere the fades pass through. Wait
 			// for the fade to end before deciding. A jump outside that range is decided below.
 			check.last = s
 			m.scheduleLuxHoldCheck(room, st, check)
 			m.luxMu.Unlock()
 			return
+		}
+		waiting := now.Before(luxFadeEnd(st.cmd).Add(luxFreshReportWait))
+		if within && !fresh {
+			// The reading arrived before the fade ended, so it may show a level from early in the
+			// fade. It is never enough to hold. Wait for a fresh report, and give up without
+			// holding when none comes.
+			if waiting {
+				check.last = s
+				m.scheduleLuxHoldCheck(room, st, check)
+				m.luxMu.Unlock()
+				return
+			}
+			skipped := check.skipped
+			m.luxMu.Unlock()
+			m.logger.Info("Possible manual change not confirmed; no fresh report from the cans after the fade",
+				zap.String("room", room.HueGroup), zap.String("first_reason", check.reason),
+				zap.Duration("waited", luxFreshReportWait))
+			if skipped {
+				m.luxEvaluate(room, "hold check gave up")
+			}
+			return
+		}
+		if within && waiting && check.stale != nil && luxReportConverging(st.cmd, check.stale, s) {
+			// A light group's state is built from its members' reports. When a bridge reports the
+			// members one at a time, minutes apart, a fresh group report may update only some of
+			// them, so it can sit between the stale level and the commanded one. Such a fresh
+			// report is not enough to hold while it is closer to the commanded values than the
+			// stale reading: the check keeps waiting until the group reaches the fade path (no
+			// hold) or luxFreshReportWait ends. By then every member has had time to report, so a
+			// fresh reading still off the path is decided below. A fresh report that did not move
+			// toward the commanded values confirms the stale level, so it is decided below at once.
+			check.last = s
+			m.scheduleLuxHoldCheck(room, st, check)
+			m.luxMu.Unlock()
+			return
+		}
+		if settled {
+			check.reads++ // a group may lag a running fade by several seconds, so only reads after it count
 		}
 		if s.State == "on" && check.reads < luxHoldConfirmReads && luxReportMoved(check.last, s) {
 			check.last = s
@@ -828,6 +889,40 @@ func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
 		zap.String("room", room.HueGroup),
 		zap.String("reason", reason))
 	m.setLuxHoldHelper(room, true)
+}
+
+// luxFadeEnd is when the command's transition ends.
+func luxFadeEnd(cmd *luxCommand) time.Time { return cmd.at.Add(cmd.transition) }
+
+// luxReportFresh reports whether a report that arrived at the given time is fresh: it arrived
+// after the command's fade ended, give or take the report lag. A report from during the fade can
+// show a level from early in it, so only a fresh one may be compared with the final commanded
+// values. The fade end is a better test than the command time: a stale level from early in the
+// fade arrives after the command, too.
+func luxReportFresh(cmd *luxCommand, arrived time.Time) bool {
+	return !arrived.Before(luxFadeEnd(cmd).Add(fadeReportLag))
+}
+
+// luxReportConverging reports whether report b is closer than report a to the command's final
+// brightness or color temperature, and farther from neither, by more than the jitter a report
+// may have. A light group whose members report one at a time moves toward the commanded values.
+func luxReportConverging(cmd *luxCommand, a, b *ha.State) bool {
+	closer, farther := false, false
+	compare := func(key string, target, scale, tolerance float64) {
+		va, okA := numberAttr(a.Attributes, key)
+		vb, okB := numberAttr(b.Attributes, key)
+		if !okA || !okB {
+			return
+		}
+		d := math.Abs(vb*scale-target) - math.Abs(va*scale-target)
+		closer = closer || d < -tolerance
+		farther = farther || d > tolerance
+	}
+	compare("brightness", cmd.pct, 100.0/255, manualReverseBrightnessTolerance)
+	if cmd.kelvin != 0 {
+		compare("color_temp_kelvin", float64(cmd.kelvin), 1, manualReverseKelvinTolerance)
+	}
+	return closer && !farther
 }
 
 // luxFadeSettled reports whether the latest command's transition, plus luxFadeSettleMargin, has ended.

@@ -416,16 +416,19 @@ func TestScenario_UserStory_ManualColorChangeDuringOrAfterOverlappingFadesHolds(
 		kelvin float64
 		// holdBy is the latest offset from the first command at which the room must be held.
 		holdBy time.Duration
+		// reportAgainAt, when set, is when the bridge reports the same color again, after the
+		// fade. A report from during the fade is not fresh enough to hold on its own.
+		reportAgainAt time.Duration
 	}{
 		// Far outside any color the fades pass through: held on the first confirming read, while
 		// the fade still runs.
-		{"warm color set mid-fade", 50 * time.Second, 2200, 55 * time.Second},
-		{"cool color set mid-fade", 50 * time.Second, 5000, 55 * time.Second},
-		// Within the fades' range while the fade runs: held once the fade has ended and the light
+		{"warm color set mid-fade", 50 * time.Second, 2200, 55 * time.Second, 0},
+		{"cool color set mid-fade", 50 * time.Second, 5000, 55 * time.Second, 0},
+		// Within the fades' range while the fade runs: held once a report from after the fade
 		// still differs from the final commanded 3200 K.
-		{"color a little off set mid-fade", 65 * time.Second, 3800, 95 * time.Second},
+		{"color a little off set mid-fade", 65 * time.Second, 3800, 110 * time.Second, 100 * time.Second},
 		// After the fade: the same value as the regression's report is a person's change.
-		{"color changed after the fade", 120 * time.Second, 3365, 125 * time.Second},
+		{"color changed after the fade", 120 * time.Second, 3365, 125 * time.Second, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -440,6 +443,9 @@ func TestScenario_UserStory_ManualColorChangeDuringOrAfterOverlappingFadesHolds(
 			f.env.MockHA.ClearServiceCalls()
 			f.manager.luxTick()
 			assert.Empty(t, f.lightCalls(), "no command while the change is being confirmed")
+			if tt.reportAgainAt != 0 {
+				replayColorReports(f, t0, []colorReport{{tt.reportAgainAt, tt.kelvin}})
+			}
 			f.clock.Advance(t0.Add(tt.holdBy).Sub(f.clock.Now()))
 
 			// THEN: the room is held in time, and later ticks leave the cans alone

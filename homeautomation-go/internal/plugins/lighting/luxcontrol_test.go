@@ -99,22 +99,34 @@ func canReport(state string, brightness255 float64, kelvin float64) *ha.State {
 
 // changeByHand is a person's change to the cans: Home Assistant holds the new state, its report
 // arrives, and the plugin's confirmation reads run until the check is decided. During a fade the
-// check may wait for the fade to end.
+// check may wait for the fade to end and for a fresh report.
 func (f *luxFixture) changeByHand(s *ha.State) {
 	changeCansByHand(f.manager, f.env, f.clock, f.room, s)
 }
 
-// changeCansByHand is changeByHand for any lux room.
+// changeCansByHand is changeByHand for any lux room. A report that arrives during a fade is not
+// fresh, so the check waits for one from after the fade. A bridge that reports a light group late
+// reports its members again after the fade, and that report shows the person's level: the helper
+// delivers the same state once more after the fade ends.
 func changeCansByHand(m *Manager, env *testutil.Env, clk *clock.MockClock, room *RoomConfig, s *ha.State) {
 	env.MockHA.SetState(room.LuxControl.Cans, s.State, s.Attributes)
 	m.handleCansChange(room, s)
-	for i := 0; i < 30; i++ { // up to 150 s: the longest fade plus the settle margin and re-reads
+	reported := false
+	// Up to about 5 min: the longest fade, the wait for a fresh report and the re-reads.
+	for i := 0; i < 60; i++ {
 		clk.Advance(luxHoldConfirmDelay)
 		m.luxMu.Lock()
-		pending := m.luxRoom(room.HueGroup).checking != nil
+		st := m.luxRoom(room.HueGroup)
+		pending := st.checking != nil
+		stale := st.cmd != nil && !luxReportFresh(st.cmd, st.lastReportAt)
+		fresh := st.cmd != nil && luxReportFresh(st.cmd, clk.Now())
 		m.luxMu.Unlock()
 		if !pending {
 			return
+		}
+		if !reported && stale && fresh {
+			reported = true
+			m.handleCansChange(room, s)
 		}
 	}
 }
