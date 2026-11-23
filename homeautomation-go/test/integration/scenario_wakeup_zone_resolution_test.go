@@ -413,7 +413,6 @@ func TestScenario_WakeUp_StopsWhenWakeSequenceEnds(t *testing.T) {
 
 	// Simulate the bedroom door opening and wake sequence ending
 	// This mirrors the production bug timeline from 2026-02-27 at 08:53 AM
-	env.server.SetState("input_boolean.primary_bedroom_door_open", "on", map[string]interface{}{})
 	env.server.SetState("input_boolean.wake_sequence_active", "off", map[string]interface{}{})
 	env.server.SetState("input_boolean.anyone_asleep", "off", map[string]interface{}{})
 	env.server.SetState("input_boolean.master_asleep", "off", map[string]interface{}{})

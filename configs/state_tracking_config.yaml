@@ -1,0 +1,9 @@
+---
+# State tracking options. Every key is optional, and this file may be absent.
+#
+# master_bedroom_door_sensor: a contact sensor on the master bedroom door
+# (a binary_sensor, on = open). When it changes from closed to open in the
+# morning day phase while isMasterAsleep is true, state tracking clears
+# isMasterAsleep. The house then wakes through the usual derived states.
+# Opening the door at any other time does nothing. Leave it unset to turn this off.
+# master_bedroom_door_sensor: binary_sensor.example_bedroom_door

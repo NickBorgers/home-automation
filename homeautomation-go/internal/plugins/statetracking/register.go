@@ -2,6 +2,7 @@ package statetracking
 
 import (
 	"fmt"
+	"path/filepath"
 
 	pkgha "homeautomation/pkg/ha"
 	"homeautomation/pkg/plugin"
@@ -32,7 +33,13 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 		return nil, fmt.Errorf("statetracking plugin requires internal state.Manager")
 	}
 
+	cfg, err := LoadConfig(filepath.Join(ctx.ConfigDir, ConfigFileName))
+	if err != nil {
+		return nil, err
+	}
+
 	manager := NewManager(ctx.ShutdownCtx, haClient, stateManager, ctx.Logger, ctx.ReadOnly, ctx.Registry, ctx.SoCoCliURL, ctx.AlertNotifier)
+	manager.SetMasterBedroomDoorSensor(cfg.MasterBedroomDoorSensor)
 	return &pluginAdapter{manager: manager}, nil
 }
 

@@ -6,10 +6,10 @@ This document maps Node Red global state variables to their Home Assistant entit
 
 ## Migration Summary
 
-- **Total state variables in Go implementation**: 46
-- **Synced with Home Assistant**: 44
+- **Total state variables in Go implementation**: 45
+- **Synced with Home Assistant**: 43
 - **Local-only (memory only)**: 2
-- **Booleans**: 33
+- **Booleans**: 32
 - **Numbers**: 3
 - **Text/String**: 8
 - **JSON (local-only)**: 1
@@ -18,9 +18,9 @@ This document maps Node Red global state variables to their Home Assistant entit
 
 ## Complete State Variable Reference
 
-All 46 state variables currently implemented in the Go application, organized by type.
+All 45 state variables currently implemented in the Go application, organized by type.
 
-### Boolean Variables (33)
+### Boolean Variables (32)
 
 | Variable | Home Assistant Entity | Description | Flags |
 |----------|----------------------|-------------|-------|
@@ -49,7 +49,6 @@ All 46 state variables currently implemented in the Go application, organized by
 | isNickOfficeOccupied | input_boolean.nick_office_occupied | Nick's office occupancy sensor | - |
 | isKitchenOccupied | input_boolean.kitchen_occupied | Logical kitchen occupancy emitted by the room-presence plugin from Frigate camera events | ComputedOutput |
 | isPantryOccupied | input_boolean.pantry_occupied | Logical pantry occupancy emitted by the room-presence plugin | ComputedOutput |
-| isPrimaryBedroomDoorOpen | input_boolean.primary_bedroom_door_open | Primary bedroom door state | - |
 | isNickNearHome | input_boolean.nick_near_home | Nick proximity geofence trigger | - |
 | isCarolineNearHome | input_boolean.caroline_near_home | Caroline proximity geofence trigger | - |
 | isLockdown | input_boolean.lockdown | Security lockdown momentary trigger | - |
