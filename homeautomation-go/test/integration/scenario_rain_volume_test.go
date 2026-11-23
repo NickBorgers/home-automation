@@ -21,6 +21,7 @@ import (
 //   - Primary Bed targets 24; the other targets preserve their configured room balance.
 //   - Effective volumes use the production rounding rule: round(base volume * playlist multiplier).
 func TestScenario_RainPlaybackUsesRaisedVolumeTargets(t *testing.T) {
+	t.Parallel()
 	t.Log("GIVEN: the production sleep-prep and sleep rain profiles")
 	config, err := music.LoadConfig(filepath.Join("..", "..", "..", "configs", "music_config.yaml"))
 	require.NoError(t, err)
