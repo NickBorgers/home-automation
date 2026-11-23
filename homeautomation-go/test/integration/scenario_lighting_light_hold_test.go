@@ -100,6 +100,10 @@ func assertTurnOffTargets(t *testing.T, calls []ServiceCall, entityID string, wa
 			for _, entity := range entities {
 				found = found || entity == entityID
 			}
+		case []string:
+			for _, entity := range entities {
+				found = found || entity == entityID
+			}
 		}
 	}
 	require.Equal(t, want, found)

@@ -1092,7 +1092,13 @@ func (m *Manager) turnOffRoom(ctx context.Context, room *RoomConfig, trigger str
 			m.recordAction(room.HueGroup, "turn_off", reason, "", true, trigger)
 			return
 		}
-		serviceData = map[string]interface{}{"entity_id": remaining}
+		// Only switch from area_id to entity_id when at least one entity in
+		// this room is held. If no held entity belongs to this room, keep the
+		// original area-based call so lights absent from the registry (disabled,
+		// briefly disconnected) are not silently missed.
+		if len(kept) > 0 {
+			serviceData = map[string]interface{}{"entity_id": remaining}
+		}
 	}
 
 	if m.readOnly {
