@@ -225,7 +225,7 @@ func (m *MockClient) GetState(entityID string) (*State, error) {
 
 	state, ok := m.states[entityID]
 	if !ok {
-		return nil, fmt.Errorf("entity %s not found", entityID)
+		return nil, fmt.Errorf("entity %s not found: %w", entityID, ErrEntityNotFound)
 	}
 
 	return state, nil

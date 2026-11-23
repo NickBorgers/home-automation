@@ -34,6 +34,7 @@ type luxFixture struct {
 func newLuxFixture(t *testing.T, mode string, readOnly bool) *luxFixture {
 	t.Helper()
 	env := testutil.NewEnv(t)
+	seedScenes(env.MockHA, "Living Room", "Living Accent")
 	cfg := &HueConfig{
 		LuxCurve: luxTestCurve(),
 		Rooms: []RoomConfig{{

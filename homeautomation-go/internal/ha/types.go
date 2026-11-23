@@ -2,8 +2,13 @@ package ha
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 )
+
+// ErrEntityNotFound is wrapped by GetState when Home Assistant has no state
+// for the requested entity. Use errors.Is to tell it apart from a failed lookup.
+var ErrEntityNotFound = errors.New("entity not found")
 
 // Message represents a base WebSocket message to/from Home Assistant
 type Message struct {

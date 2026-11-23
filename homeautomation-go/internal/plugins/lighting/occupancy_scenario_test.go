@@ -134,6 +134,7 @@ func TestScenario_OccupancyLighting(t *testing.T) {
 			config := createOccupancyTestConfig()
 			manager, mockClient, snapshot := setupOccupancyManager(t, config, tt.overrides)
 			defer manager.Stop()
+			seedScenes(mockClient, "N Office", "Kitchen")
 
 			if tt.dayPhase != "" {
 				_ = manager.stateManager.SetString("dayPhase", tt.dayPhase)

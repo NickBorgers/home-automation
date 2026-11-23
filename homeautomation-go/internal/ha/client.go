@@ -1298,7 +1298,7 @@ func (c *Client) getCachedState(entityID string) (*State, bool, error) {
 	}
 	c.stateCache.hits.Add(1)
 	if !exists {
-		return nil, true, fmt.Errorf("entity %s not found", entityID)
+		return nil, true, fmt.Errorf("entity %s not found: %w", entityID, ErrEntityNotFound)
 	}
 	return state, true, nil
 }
@@ -1310,7 +1310,7 @@ func findState(states []*State, entityID string) (*State, error) {
 			return state, nil
 		}
 	}
-	return nil, fmt.Errorf("entity %s not found", entityID)
+	return nil, fmt.Errorf("entity %s not found: %w", entityID, ErrEntityNotFound)
 }
 
 // invalidateStateCache marks the cache disconnected and logs if it held data.

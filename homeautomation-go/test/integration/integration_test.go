@@ -2,6 +2,7 @@ package integration
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -27,6 +28,7 @@ func setupTest(t *testing.T) (*MockHAServer, *ha.Client, *state.Manager, func())
 	// Start mock HA server with dynamic port allocation (port 0)
 	server := NewMockHAServer(testAddr, testToken)
 	server.InitializeStates()
+	seedHueScenes(server)
 
 	err := server.Start()
 	require.NoError(t, err)
@@ -854,4 +856,21 @@ func TestReconnectCountIncrementsOnMultipleReconnects(t *testing.T) {
 
 	server.Stop()
 	client.Disconnect()
+}
+
+// seedHueScenes creates the scene entities the lighting plugin recalls, because
+// the plugin skips a scene that Home Assistant does not have. The groups are
+// the Hue groups used by the integration test configs.
+func seedHueScenes(server *MockHAServer) {
+	groups := []string{
+		"Living Room", "Master Bedroom", "Front of House", "Kitchen", "Primary Suite",
+		"Pantry", "Living", "Living Accent",
+	}
+	phases := []string{"morning", "day", "afternoon", "dusk", "evening", "winddown", "night", "sunset"}
+	for _, g := range groups {
+		for _, p := range phases {
+			id := "scene." + strings.ReplaceAll(strings.ToLower(g+" "+p), " ", "_")
+			server.SetState(id, "2026-01-01T00:00:00+00:00", map[string]interface{}{})
+		}
+	}
 }
