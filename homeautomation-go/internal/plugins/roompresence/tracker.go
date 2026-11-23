@@ -127,6 +127,10 @@ type Tracker struct {
 	approachEdges map[string]exitEdge
 	// arrivals wait for an entry sensor, by area, oldest first.
 	arrivals map[string][]arrival
+	// lastLeft is when a token last moved out of each area. A door sensor ignores the leaver closing the door.
+	lastLeft map[string]time.Time
+	// presenceOn lists the presence sensors that are on now.
+	presenceOn map[string]bool
 
 	peopleKnown bool
 	peopleHome  int
@@ -165,6 +169,8 @@ func NewTracker(cfg *Config) *Tracker {
 		exitEdges:     make(map[string][]exitEdge),
 		approachEdges: make(map[string]exitEdge),
 		arrivals:      make(map[string][]arrival),
+		lastLeft:      make(map[string]time.Time),
+		presenceOn:    make(map[string]bool),
 		anyoneHome:    true,
 	}
 	for cam, areas := range cfg.Cameras {
@@ -260,21 +266,47 @@ func (t *Tracker) SetPeople(now time.Time, count int, guests, anyoneHome bool) {
 
 // BedOccupied makes sure an area with an occupied bed holds a token.
 func (t *Tracker) BedOccupied(now time.Time, area string) {
+	t.occupy(now, area, "bed sensor is on")
+}
+
+// PresenceOn records that an area's presence sensor is on and makes sure the area holds a token. Tick keeps a
+// token there until the sensor turns off.
+func (t *Tracker) PresenceOn(now time.Time, area, entity string) {
+	t.presenceOn[entity] = true
+	t.occupy(now, area, entity+" is on")
+}
+
+// occupy makes sure an area holds at least one token. It adds one only to an area that has none.
+func (t *Tracker) occupy(now time.Time, area, reason string) {
 	if _, ok := t.cfg.Areas[area]; !ok || len(t.tokensIn(area)) > 0 {
 		return
 	}
-	t.newToken(now, area, "", "bed sensor is on", false)
+	t.newToken(now, area, "", reason, false)
 }
 
-// SensorChanged applies a bed, exit, approach or entry sensor's state change. from is the old state,
-// empty when unknown.
+// SensorChanged applies a bed, presence, door, exit, approach or entry sensor's state change. from is the
+// old state, empty when unknown.
 func (t *Tracker) SensorChanged(now time.Time, entity, from, to string) {
+	roles := t.cfg.sensorAreas(entity)
+	if (from == "off" && to == "on") || (from == "on" && to == "off") {
+		for _, area := range roles.doors {
+			if left, ok := t.lastLeft[area]; ok && now.Sub(left) <= t.cfg.ExitWindow {
+				continue // the person who just left closed the door behind them
+			}
+			t.occupy(now, area, fmt.Sprintf("%s turned %s", entity, to))
+		}
+	}
 	if to != "on" {
+		if len(roles.presence) > 0 {
+			delete(t.presenceOn, entity)
+		}
 		return
 	}
-	roles := t.cfg.sensorAreas(entity)
 	for _, area := range roles.beds {
 		t.BedOccupied(now, area)
+	}
+	for _, area := range roles.presence {
+		t.PresenceOn(now, area, entity)
 	}
 	if from == "on" {
 		return
@@ -352,6 +384,7 @@ func (t *Tracker) matchExits(now time.Time, area string) {
 		}
 		if best != nil {
 			t.removeToken(now, best, "went outside: "+e.entity+" turned on")
+			t.lastLeft[area] = now
 			continue
 		}
 		// A token may still arrive. Allow one tick past the window, since Tick runs once a second.
@@ -455,6 +488,18 @@ func (t *Tracker) Tick(now time.Time) {
 		}
 		if now.Sub(t.lastEvidence(tok)) > *limit {
 			t.removeToken(now, tok, fmt.Sprintf("idle for more than %s", *limit))
+		}
+	}
+
+	// A presence sensor that is on keeps a token in its area, even after a camera moved that token out. A helper
+	// left on in an empty house does not.
+	if !t.peopleKnown || t.anyoneHome {
+		for _, name := range sortedKeys(t.cfg.Areas) {
+			for _, entity := range t.cfg.Areas[name].PresenceSensors {
+				if t.presenceOn[entity] {
+					t.occupy(now, name, entity+" is on")
+				}
+			}
 		}
 	}
 
@@ -1005,6 +1050,7 @@ func (t *Tracker) moveToken(now time.Time, tok *token, area, cam, reason string)
 		tok.camera = cam
 	}
 	if from != area {
+		t.lastLeft[from] = now
 		t.signalEntry(now, area)
 	}
 }

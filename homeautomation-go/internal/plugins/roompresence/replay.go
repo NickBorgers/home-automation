@@ -21,7 +21,8 @@ type CapturedMessage struct {
 }
 
 // StateTopic is the replay log topic for a Home Assistant state change. Its payload is a JSON
-// StateChange. A capture script writes one for each bed or exit sensor change it sees.
+// StateChange. A capture script writes one for each sensor change it sees: bed, presence, door, exit,
+// approach and entry sensors.
 const StateTopic = "ha/state"
 
 // StateChange is the payload of a StateTopic message.

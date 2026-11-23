@@ -191,10 +191,34 @@ Other evidence also moves tokens:
 - **Nobody home** (`isAnyoneHome` false for `nobody_home_delay`, default 5 min): remove every token.
 - **A bed presence sensor** listed in the area's `bed_sensors` turns on: make sure the area holds at least
   one token.
+- **A presence sensor** listed in the area's `presence_sensors` is on: make sure the area holds at least one
+  token, for as long as the sensor stays on. See "Secondary signals".
+- **A door sensor** listed in the area's `door_sensors` opens or closes: make sure the area holds at least one
+  token. See "Secondary signals".
 - **An exit sensor** listed in the area's `exit_sensors` turns on: the person who just reached the outside
   door went out. See below.
 - **An arrival**: an approach sensor, then an exit sensor, then an entry sensor. Someone walked up to the
   door and came in, so the area gets a token. See "Coming in".
+
+#### Secondary signals
+
+No camera sees a person in an unseen area, such as a bedroom. Its token depends on the cameras seeing every
+move through the doorway. A false person in the doorway can move the only token out, and nothing brings it
+back. Other sensors in the house can show that someone is still in there. List them on the area:
+
+- `presence_sensors` are binary sensors or helpers whose `on` means someone is in the area. An example is a
+  do-not-disturb helper that people turn on from inside. While one is on, the area always holds a token. If a
+  camera moves that token out, the next tick adds a new one. Turning the sensor off removes nothing. A sensor
+  that is on in an empty house (`isAnyoneHome` false) adds no token at the tick. A sensor that is already on at
+  startup counts.
+- `door_sensors` are contact sensors on the area's doors. A door that opens or closes means someone is in
+  the area, so the area gets a token if it has none. One case is the exception: the door moves within
+  `exit_window` after a token left the area. That is the person who left, closing the door behind them. Only a
+  change between `on` and `off` counts. A sensor that comes back from `unavailable`, and the door's state at
+  startup, do not count.
+
+Neither kind removes a token. The usual rules do that: a person seen walking out, the idle limit, and nobody
+home.
 
 #### Leaving the house
 
@@ -308,7 +332,7 @@ the tokens in unseen areas in an `input_text` helper, set by `token_store`:
 - It writes in `log_only` mode too, because nothing but the plugin reads the helper. It never writes in
   read-only mode.
 - At startup, before it reads any camera, it loads the tokens back with their first arrival time. So idle limits
-  still count from the first arrival, and a bed sensor that is on adds no extra token.
+  still count from the first arrival, and a bed or presence sensor that is on adds no extra token.
 - It loads nothing when the copy is older than `token_store_max_age` (default 15 min). After a restart,
   clean or killed, the copy is at most 5 min old. Only a long outage leaves an older copy, and then the
   plugin starts empty, as without a store. A token that arrived in the last 10 s before a kill is not in
@@ -394,7 +418,9 @@ room_presence:
     kitchen: { seen: true,  idle_limit: 20m }
     hall:    { seen: true,  idle_limit: 5m }
     study:   { seen: false, idle_limit: 3h, neighbors: [lounge] }
-    bedroom: { seen: false, neighbors: [hall], bed_sensors: [binary_sensor.example_bed_presence] }
+    bedroom: { seen: false, neighbors: [hall], bed_sensors: [binary_sensor.example_bed_presence],
+               presence_sensors: [input_boolean.example_do_not_disturb],
+               door_sensors: [binary_sensor.example_bedroom_door] }
     porch:   { seen: false, idle_limit: 10m, leads_outside: true, neighbors: [hall],
                exit_sensors: [binary_sensor.example_yard_person],
                approach_sensors: [binary_sensor.example_street_person],
@@ -407,6 +433,7 @@ room_presence:
 
 - `neighbors` (symmetric) are areas a person walks between without a boundary zone: parts of one open space,
   and the seen area outside an unseen area's doorway. Hand-offs and rule 4 use it.
+- `presence_sensors` and `door_sensors` are other signals that someone is in an area. See "Secondary signals".
 - `exit_sensors` are binary sensors outside an unseen area's outside door. See "Leaving the house".
 - `approach_sensors` see the way up to that door, farther out, and `entry_sensors` are on the door. See
   "Coming in".
@@ -455,7 +482,7 @@ One line per change. A token whose `lastSeen` only moves logs nothing.
   workspace-root `configs/` directory, and `TestDeploymentConfig` and `TestDeploymentReplays` check them. A log
   has one `{"t": <unix seconds>, "topic": ..., "payload": ...}` object per line. Expectations list
   checkpoints (`after` seconds, `occupied`, `empty`) and optionally `unknown_zones`. A log can also hold
-  Home Assistant state changes of bed, exit, approach and entry sensors, with topic `ha/state` and payload
+  Home Assistant state changes of bed, presence, door, exit, approach and entry sensors, with topic `ha/state` and payload
   `{"entity_id": ..., "from": ..., "to": ...}`.
 - **Rule tests.** Table-driven tests for each start, end and expiry rule.
 - **User stories**, in `test/integration/scenario_roompresence_test.go`, in the GIVEN/WHEN/THEN form. For

@@ -432,3 +432,67 @@ func TestScenario_RoomPresence_VacuumDoesNotTakeOverSleepersToken(t *testing.T) 
 	assert.True(t, known)
 	assert.False(t, occ, "the robot does not make the hall occupied")
 }
+
+// GIVEN a person is in the bedroom with do-not-disturb on
+// WHEN the hall camera reports a person coming out of the bedroom doorway
+// THEN the bedroom is occupied again within a few seconds
+//
+// INVARIANT: while a presence sensor is on, its area always holds a token. Without presence_sensors, a false
+// sighting in the doorway moves the only bedroom token into the hall, where it expires.
+func TestScenario_RoomPresence_PresenceSensorKeepsBedroomOccupied(t *testing.T) {
+	server, mgr, cleanup := setupRoomPresenceScenario(t)
+	defer cleanup()
+
+	t.Log("GIVEN: someone is home, and do-not-disturb is on in the bedroom")
+	server.SetState("input_boolean.anyone_home", "on", nil)
+	require.Eventually(t, func() bool { return mgr.GetShadowState().Inputs.Current["isAnyoneHome"] == true },
+		5*time.Second, 10*time.Millisecond)
+	server.SetState("input_boolean.example_do_not_disturb", "off", nil)
+	server.SetState("input_boolean.example_do_not_disturb", "on", nil)
+	require.Eventually(t, func() bool { return mgr.Occupied("bedroom") }, 5*time.Second, 10*time.Millisecond)
+
+	t.Log("WHEN: a person seems to come out of the bedroom doorway into the hall")
+	publishFrigate(t, server, "new", "ghost", "cam_hall", []string{})
+	publishFrigate(t, server, "update", "ghost", "cam_hall", []string{"hall_to_bedroom"}, "hall_to_bedroom")
+	publishFrigate(t, server, "update", "ghost", "cam_hall", []string{"hall_to_bedroom", "hall"}, "hall")
+	require.Eventually(t, func() bool { return mgr.Occupied("hall") }, 5*time.Second, 10*time.Millisecond)
+
+	t.Log("THEN: the bedroom holds a token again")
+	require.Eventually(t, func() bool { return mgr.Occupied("bedroom") }, 5*time.Second, 10*time.Millisecond)
+}
+
+// GIVEN the bedroom holds no token, because the cameras missed a person going in
+// WHEN the bedroom door closes
+// THEN the bedroom is occupied
+//
+// AND WHEN that person walks out of the bedroom and closes the door behind them
+// THEN the bedroom is empty
+func TestScenario_RoomPresence_DoorSensorFindsPersonInBedroom(t *testing.T) {
+	server, mgr, cleanup := setupRoomPresenceScenario(t)
+	defer cleanup()
+
+	t.Log("GIVEN: the bedroom door is open and the bedroom has no token")
+	server.SetState("binary_sensor.example_bedroom_door", "on", nil)
+	require.False(t, mgr.Occupied("bedroom"))
+
+	t.Log("WHEN: the bedroom door closes")
+	server.SetState("binary_sensor.example_bedroom_door", "off", nil)
+
+	t.Log("THEN: the bedroom is occupied")
+	require.Eventually(t, func() bool { return mgr.Occupied("bedroom") }, 5*time.Second, 10*time.Millisecond)
+
+	t.Log("WHEN: the person opens the door, walks out into the hall, and closes the door behind them")
+	server.SetState("binary_sensor.example_bedroom_door", "on", nil)
+	publishFrigate(t, server, "new", "a", "cam_hall", []string{})
+	publishFrigate(t, server, "update", "a", "cam_hall", []string{"hall_to_bedroom"}, "hall_to_bedroom")
+	publishFrigate(t, server, "update", "a", "cam_hall", []string{"hall_to_bedroom", "hall"}, "hall")
+	require.Eventually(t, func() bool { return mgr.Occupied("hall") }, 5*time.Second, 10*time.Millisecond)
+	server.SetState("binary_sensor.example_bedroom_door", "off", nil)
+
+	t.Log("THEN: the bedroom is empty")
+	// Give the door-closed event time to be handled. require.Eventually cannot do this: the bedroom is
+	// already empty before the event arrives, so it would pass without the handler having run.
+	time.Sleep(200 * time.Millisecond)
+	assert.False(t, mgr.Occupied("bedroom"), "the person who left closed the door")
+	assert.True(t, mgr.Occupied("hall"))
+}

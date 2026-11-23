@@ -882,6 +882,94 @@ func TestSensorChanged_BedSensor(t *testing.T) {
 }
 
 const (
+	doNotDisturb = "input_boolean.example_do_not_disturb"
+	bedroomDoor  = "binary_sensor.example_bedroom_door"
+)
+
+// "While do-not-disturb is on, the bedroom stays occupied, even if the camera thought we walked out."
+func TestPresenceSensor_EnsuresToken(t *testing.T) {
+	s := newScene(t)
+	s.tr.SensorChanged(at(0), doNotDisturb, "off", "on")
+	s.occupied("bedroom")
+	s.tokens(1)
+	for _, tok := range s.tr.tokens {
+		assert.Contains(t, tok.reason, doNotDisturb)
+	}
+	s.tr.SensorChanged(at(1), doNotDisturb, "on", "on")
+	s.tokens(1)
+	s.tr.SensorChanged(at(2), doNotDisturb, "on", "off")
+	s.occupied("bedroom") // turning off is not a person leaving
+	s.tick(48 * 3600)
+	s.occupied("bedroom")
+	assert.Empty(t, s.tr.DrainEntries(), "a presence sensor is not an entry")
+}
+
+// "While do-not-disturb is on, a sighting at the bedroom door does not leave the bedroom empty."
+func TestPresenceSensor_KeepsTokenWhileOn(t *testing.T) {
+	s := newScene(t)
+	s.tr.SensorChanged(at(0), doNotDisturb, "off", "on")
+	s.walk(10, "a", "cam_hall", "hall_to_bedroom", "hall")
+	s.empty("bedroom") // the camera moved the token out
+	s.tick(20)
+	s.occupied("bedroom")
+
+	// Once it is off, a person who walks out leaves the bedroom empty.
+	s.tr.SensorChanged(at(30), doNotDisturb, "on", "off")
+	s.walk(40, "b", "cam_hall", "hall_to_bedroom", "hall")
+	s.tick(50)
+	s.empty("bedroom")
+}
+
+// A helper left on in an empty house does not keep a token.
+func TestPresenceSensor_NobodyHome(t *testing.T) {
+	s := newScene(t)
+	s.tr.SetPeople(at(0), 0, false, false)
+	s.tr.SensorChanged(at(1), doNotDisturb, "off", "on")
+	s.tick(10 * 60)
+	s.empty("bedroom")
+}
+
+// "When the bedroom door opens or closes, someone is in there."
+func TestDoorSensor_ChangeEnsuresToken(t *testing.T) {
+	s := newScene(t)
+	s.tr.SensorChanged(at(0), bedroomDoor, "on", "off")
+	s.occupied("bedroom")
+	s.tokens(1)
+	for _, tok := range s.tr.tokens {
+		assert.Contains(t, tok.reason, bedroomDoor)
+	}
+	s.tr.SensorChanged(at(10), bedroomDoor, "off", "on")
+	s.tokens(1)
+}
+
+// A door sensor that comes back from unavailable, or reports the same state again, did not move.
+func TestDoorSensor_NoChangeNoToken(t *testing.T) {
+	s := newScene(t)
+	s.tr.SensorChanged(at(0), bedroomDoor, "unavailable", "off")
+	s.tr.SensorChanged(at(1), bedroomDoor, "", "on")
+	s.tr.SensorChanged(at(2), bedroomDoor, "on", "unavailable")
+	s.tr.SensorChanged(at(3), bedroomDoor, "on", "on")
+	s.empty("bedroom")
+}
+
+// "When I walk out of the bedroom and close the door behind me, the bedroom does not look occupied."
+func TestDoorSensor_LeaverClosingDoorAddsNoToken(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "bedroom")
+	s.tr.SensorChanged(at(1), bedroomDoor, "off", "on")
+	s.tokens(1) // the person who is about to leave already holds the bedroom token
+	left := s.walk(2, "a", "cam_hall", "hall_to_bedroom", "hall")
+	s.empty("bedroom")
+	s.occupied("hall")
+	s.tr.SensorChanged(at(left+10), bedroomDoor, "on", "off")
+	s.empty("bedroom")
+
+	// Long after, the door moves again: someone is in there.
+	s.tr.SensorChanged(at(left+600), bedroomDoor, "off", "on")
+	s.occupied("bedroom")
+}
+
+const (
 	streetPerson = "binary_sensor.example_street_person"
 	porchUnlock  = "input_boolean.example_porch_door_unlocked"
 )
