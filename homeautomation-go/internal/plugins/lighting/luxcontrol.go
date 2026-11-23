@@ -59,6 +59,13 @@ const (
 	// it. Such a stale reading never holds the room. When no fresh report arrives in this time,
 	// the check gives up without holding and the loop resumes.
 	luxFreshReportWait = 3 * time.Minute
+	// luxFreshTurnOnWindow is how recently the cans may have turned on, before a command is sent,
+	// for that command to answer the turn-on. A light turned on outside the plugin (for example
+	// from a control paired to the Hue bridge) reaches Home Assistant at once, but the bridge can
+	// keep applying that turn-on's own brightness or color for a moment. A command sent this soon
+	// can be overtaken by it, so a later mismatch is a race between two writes, not a person's
+	// change. Such a command is sent once more instead of holding the room (confirmLuxHold).
+	luxFreshTurnOnWindow = 3 * time.Second
 )
 
 // luxCommand is the last command sent (or, in log_only/READ_ONLY mode, that would be sent) to a room's cans.
@@ -80,6 +87,9 @@ type luxCommand struct {
 	cctFloorPct     float64
 	cctCeilingPct   float64
 	estimatedKelvin int
+	// answersTurnOn is set on a command sent within luxFreshTurnOnWindow of the cans turning on.
+	// A confirmed mismatch then re-sends the command once (without this flag) instead of holding.
+	answersTurnOn bool
 }
 
 // levelAt returns the brightness percent and color temperature the light shows at t, on a
@@ -529,10 +539,11 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 	m.luxMu.Lock()
 	prev := st.cmd
 	m.luxMu.Unlock()
+	freshTurnOn := false
 	if prev == nil {
 		// After a restart or reset the last command is gone. Lights that are already on are the
 		// starting point, so the room fades from where it is instead of popping to the target.
-		if prev = m.adoptLuxState(room, now, kelvin); prev != nil {
+		if prev, freshTurnOn = m.adoptLuxState(room, now, kelvin); prev != nil {
 			m.luxMu.Lock()
 			st.cmd = prev
 			m.luxMu.Unlock()
@@ -540,7 +551,8 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 	}
 
 	wantOn := shouldBeOn(lc.Calibration, rec.NeededLux, prev != nil && prev.on)
-	cmd := &luxCommand{at: now, transition: luxTransition, on: wantOn, kelvin: kelvin}
+	cmd := &luxCommand{at: now, transition: luxTransition, on: wantOn, kelvin: kelvin,
+		answersTurnOn: freshTurnOn && wantOn}
 	if prev != nil && prev.on {
 		cmd.fromOn = true
 		cmd.fromPct, cmd.fromKelvin = prev.levelAt(now)
@@ -619,15 +631,21 @@ func clampStep(from, goal, step float64) float64 {
 // brightness, and the room is then treated as dark. A missing color temperature takes the
 // target's, so it is not slewed. The command is stamped now with no transition, so manual-change
 // detection compares later reports with what the lights were already showing.
-func (m *Manager) adoptLuxState(room *RoomConfig, now time.Time, targetKelvin int) *luxCommand {
+// It also reports whether the cans turned on within luxFreshTurnOnWindow of now. Home Assistant
+// moves last_changed only when the state itself changes, so for a light that is on it is the
+// turn-on time. The window applies on both sides of now, since Home Assistant's clock and the
+// plugin's may differ a little.
+func (m *Manager) adoptLuxState(room *RoomConfig, now time.Time, targetKelvin int) (*luxCommand, bool) {
 	s, err := m.haClient.GetState(room.LuxControl.Cans)
 	if err != nil || s == nil || s.State != "on" {
-		return nil
+		return nil, false
 	}
 	b, ok := numberAttr(s.Attributes, "brightness")
 	if !ok || b <= 0 {
-		return nil
+		return nil, false
 	}
+	age := now.Sub(s.LastChanged)
+	freshTurnOn := !s.LastChanged.IsZero() && age > -luxFreshTurnOnWindow && age < luxFreshTurnOnWindow
 	cmd := &luxCommand{at: now, on: true, pct: math.Max(1, math.Min(100, b/255*100)), kelvin: targetKelvin}
 	if room.LuxControl.HasColorTemp() {
 		if k, ok := numberAttr(s.Attributes, "color_temp_kelvin"); ok && k > 0 {
@@ -636,7 +654,7 @@ func (m *Manager) adoptLuxState(room *RoomConfig, now time.Time, targetKelvin in
 	} else {
 		cmd.kelvin = 0
 	}
-	return cmd
+	return cmd, freshTurnOn
 }
 
 func abs(v int) int {
@@ -796,6 +814,9 @@ func (m *Manager) scheduleLuxHoldCheck(room *RoomConfig, st *luxRoomState, check
 // arrived after the fade ended (luxReportFresh): a bridge can report a light group minutes late.
 // The check waits up to luxFreshReportWait for such a report and gives up without holding when
 // none comes. When the read fails, the first report decides, so a person's change is not lost.
+// When the command answered a fresh turn-on (answersTurnOn) and the cans read on, the mismatch is
+// the turn-on's own level landing after the command, so the command is sent once more instead of
+// holding (resendLuxCommand).
 func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
 	s, err := m.haClient.GetState(room.LuxControl.Cans)
 	action, _ := m.evaluateConditions(room)
@@ -883,12 +904,58 @@ func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
 			return
 		}
 	}
+	if err == nil && s != nil && s.State == "on" && st.cmd.answersTurnOn && luxActive(room) && !m.readOnly {
+		m.resendLuxCommand(room, st, s, reason, now) // unlocks luxMu
+		return
+	}
 	st.held, st.heldSince, st.heldReason = true, now, reason
 	m.luxMu.Unlock()
 	m.logger.Info("Manual change detected; holding room",
 		zap.String("room", room.HueGroup),
 		zap.String("reason", reason))
 	m.setLuxHoldHelper(room, true)
+}
+
+// resendLuxCommand sends the current command's targets once more, stamped now with a short
+// transition that starts from the light's reported level s. It is used instead of a hold when the
+// command answered a fresh turn-on: the bridge applied that turn-on's own level after the command.
+// The new command does not answer a turn-on, so the same mismatch after it holds the room.
+// Caller must hold luxMu; it is released here. If the send fails, the room is held as before.
+func (m *Manager) resendLuxCommand(room *RoomConfig, st *luxRoomState, s *ha.State, reason string, now time.Time) {
+	cmd := st.cmd
+	resend := &luxCommand{at: now, transition: maxReturnHomeTransition * time.Second, on: true,
+		pct: cmd.pct, kelvin: cmd.kelvin, fromOn: true, fromPct: cmd.pct}
+	if b, ok := numberAttr(s.Attributes, "brightness"); ok {
+		resend.fromPct = b / 255 * 100
+	}
+	if k, ok := numberAttr(s.Attributes, "color_temp_kelvin"); ok && k > 0 && cmd.kelvin != 0 {
+		resend.fromKelvin = int(k)
+	}
+	// Recorded before the send, as for a stabilizing command, so the reports it causes are
+	// compared with it.
+	st.previous, st.cmd = cmd, resend
+	m.luxMu.Unlock()
+	m.logger.Info("Cans turned on just before this command; sending it again instead of holding",
+		zap.String("room", room.HueGroup),
+		zap.String("reason", reason),
+		zap.String("command", describeLuxCommand(resend)))
+	if err := m.sendLuxCommand(room, resend); err != nil {
+		m.luxMu.Lock()
+		held := !st.held && st.cmd == resend
+		if held {
+			st.held, st.heldSince, st.heldReason = true, now, reason
+		}
+		m.luxMu.Unlock()
+		m.logger.Error("Failed to send the command again", zap.String("room", room.HueGroup), zap.Error(err))
+		if held {
+			m.logger.Info("Manual change detected; holding room",
+				zap.String("room", room.HueGroup),
+				zap.String("reason", reason))
+			m.setLuxHoldHelper(room, true)
+		}
+		return
+	}
+	m.luxDriveFollowers(room, st, resend)
 }
 
 // luxFadeEnd is when the command's transition ends.
