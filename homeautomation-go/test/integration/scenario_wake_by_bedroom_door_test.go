@@ -86,7 +86,8 @@ func setupWakeDoorTest(t *testing.T, dayPhase, sensor string) (*wakeDoorEnv, fun
 func requireStillAsleep(t *testing.T, env *wakeDoorEnv, msg string) {
 	t.Helper()
 	waitForProcessing(t, env.stateManager)
-	// The mock server's event may still be in transit when the handlers drain.
+	// The mock server's event may still be in transit when the handlers drain. require.Eventually cannot
+	// wait for it: the master is already asleep, so it would pass before the door handler ran.
 	time.Sleep(200 * time.Millisecond)
 	asleep, err := env.stateManager.GetBool("isMasterAsleep")
 	require.NoError(t, err)

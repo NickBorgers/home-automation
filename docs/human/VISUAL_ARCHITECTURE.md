@@ -1232,7 +1232,7 @@ graph LR
 
 | Category | Count | Examples |
 |----------|-------|----------|
-| **Boolean (input)** | 18 | isNickHome, isCarolineHome, isAssistantHere, isMasterAsleep, isHaveGuests, isNickOfficeOccupied, isNickNearHome, isCarolineNearHome, isFrontOfHousePersonPresent |
+| **Boolean (input)** | 17 | isNickHome, isCarolineHome, isAssistantHere, isMasterAsleep, isHaveGuests, isNickOfficeOccupied, isNickNearHome, isCarolineNearHome, isFrontOfHousePersonPresent |
 | **Boolean (computed)** | 7 | isAnyOwnerHome, isAnyoneHome, isAnyoneAsleep, isEveryoneAsleep, isAnyoneHomeAndAwake, isGuestAsleep, isDarkOutside |
 | **Boolean (output)** | 7 | isFadeOutInProgress, isWakeSequenceActive, isSleepPrepActive, isLockdown, isEarlyWakeActive, isKitchenOccupied, isPantryOccupied |
 | **Number** | 3 | alarmTime, remainingSolarGeneration, thisHourSolarGeneration |
