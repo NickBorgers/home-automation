@@ -12,11 +12,11 @@ import (
 
 // TestScenario_MusicKitchenVolumes verifies the Kitchen speaker's base volume in each zone.
 //
-// Story: "Music is too loud in every profile. I want it 30% quieter."
+// Story: "The Kitchen speaker is too loud. I want it 30% quieter in every playback profile."
 //
 // Invariant: Kitchen's base volume in each zone is 70% of its earlier value, rounded to the nearest
 // whole step. The shared rain multiplier is unchanged. Kitchen is not a participant in the sleep zone.
-// scenario_music_volume_reduction_test.go checks every speaker; this test keeps the Kitchen focus.
+// Other speakers keep their earlier volumes.
 func TestScenario_MusicKitchenVolumes(t *testing.T) {
 	t.Parallel()
 	t.Log("GIVEN: the production music playback zones")
