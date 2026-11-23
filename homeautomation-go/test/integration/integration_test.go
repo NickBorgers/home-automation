@@ -869,7 +869,7 @@ func seedHueScenes(server *MockHAServer) {
 	phases := []string{"morning", "day", "afternoon", "dusk", "evening", "winddown", "night", "sunset"}
 	for _, g := range groups {
 		for _, p := range phases {
-			id := "scene." + strings.ReplaceAll(strings.ToLower(g+" "+p), " ", "_")
+			id := "scene." + strings.ReplaceAll(strings.ToLower(g+" "+p), " ", "_") // same result as lighting.toSnakeCase for these names
 			server.SetState(id, "2026-01-01T00:00:00+00:00", map[string]interface{}{})
 		}
 	}
