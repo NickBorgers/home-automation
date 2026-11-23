@@ -19,6 +19,9 @@ Check for:
 - Missing mutex locks on WebSocket writes
 - Race conditions
 - Missing error handling
+- For a PR that fixes a production bug: query Loki and InfluxDB for the incident window and find the first
+  event that went wrong. Flag as BLOCKING a fix that changes a code path the logs show did not run, or that
+  leaves the logged path unguarded. Do not trust the PR description's account of the cause.
 
 IMPORTANT: Do NOT push commits. You are a parallel reviewer — only comment.
 If you find issues that need fixing, describe them precisely (file:line, what to change)

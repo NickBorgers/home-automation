@@ -194,6 +194,34 @@ tests check behavior from the household's point of view, over time.
 
 A bug fix's scenario test reproduces the bug before the fix. This proves the test can catch it.
 Unit tests still cover details inside one function, but they do not replace the scenario test.
+The test replays the sequence that production logged, not the sequence the issue describes. See
+"Check the Story Against Production Evidence" below.
+
+### Check the Story Against Production Evidence
+
+An issue, a PR description or a review comment tells a story about what happened. The story can be
+wrong. The reporter may name the wrong moment, or miss the event that really caused the bug. Production
+logs and history record what really happened. They come first.
+
+**Before you fix or review a bug, rebuild the timeline from the evidence:**
+
+1. Find the incident window from the issue. Query Loki for that window: the app's logs and the Home
+   Assistant state changes. Query InfluxDB for any `sensor.*` values involved. See "Production Debugging"
+   below for both tools.
+2. List the events in order, using the `ts` inside each line. Find the first event that went wrong.
+3. Compare that event with the issue's story. If they disagree, follow the evidence. Say in the PR
+   description that the cause differs from the issue.
+4. Find the code path that produced the first wrong event. Fix that path. Write the scenario test so it
+   replays that sequence.
+
+A reviewer runs the same check. Ask: "Does this fix explain the events that production logged?"
+A review that checks the code only against the PR's own story can approve a fix to the wrong path.
+
+If the logs are unreachable or have expired, say so in your output. Do not silently fall back to the story.
+
+**Evidence stays private.** Use log lines to reason. Do not paste log lines, timestamps or entity values into
+public text such as PRs, commits or comments. They show household patterns. Describe the mechanism instead,
+as in "a join planned before the zone change ran after it." See "Public Text Describes Mechanisms" above.
 
 **Exceptions.** Skip the scenario test only when a change has no runtime behavior: docs, comments,
 CI and tooling, or a refactor that existing tests already cover. Say which exception applies in the
@@ -411,6 +439,8 @@ scripts/loki-query.sh '{service="ci-runner"}' 1h
 
 **View logs via Loki:** https://loki.featherback-mermaid.ts.net/
 
+**Sensor history via InfluxDB:** https://influxdb.featherback-mermaid.ts.net/ (see "Sensor History (InfluxDB)" below)
+
 Logs are centralized in Loki. It needs tailnet access and no token. Use the helper, which prints lines oldest-first as `<UTC time> <line>`:
 
 ```bash
@@ -481,6 +511,37 @@ LogQL basics: `|=` contains, `!=` excludes, `|~` regex (`(?i)` for case-insensit
 2026-10-13T14:02:46Z SoCo-CLI: Starting SoCo-CLI HTTP API Server v0.4.82
 2026-10-13T14:02:46Z SoCo-CLI: Macro: Attempting to (re)load macros from '/macros.txt'
 ```
+
+### Sensor History (InfluxDB)
+
+Loki's `home-assistant` stream leaves out `sensor.*` entities. InfluxDB keeps their history: temperature,
+humidity, power, battery and similar numeric values. It needs tailnet access and no token, and it only
+reads. Use the helper, which sends a Flux query and prints CSV:
+
+```bash
+scripts/influx-query.sh '<Flux>'
+```
+
+**Buckets:** `homeassistant` keeps full detail for 1 year. `homeassistant_longterm` keeps a downsampled
+copy forever; use it for older data.
+
+**Layout:** `entity_id` has no domain prefix (`example_humidity`, not `sensor.example_humidity`). `domain`
+holds the domain (`sensor`, `binary_sensor`). `_measurement` is the unit (`%`, `°F`), not the sensor type.
+`_field` is `value` for numbers.
+
+**Example query:**
+```bash
+scripts/influx-query.sh 'from(bucket: "homeassistant")
+  |> range(start: 2026-10-14T02:00:00Z, stop: 2026-10-14T03:00:00Z)
+  |> filter(fn: (r) => r.entity_id == "example_humidity" and r._field == "value")'
+```
+
+**Gotchas:**
+- Always give `range()` and a narrow `filter()`. The proxy stops a query after 60 seconds and returns 502.
+  A `distinct()` over a whole bucket also returns 502; narrow it with `domain` or a short range first.
+- `limit(n:)` counts per table. Add `|> group() |> limit(n: N)` to cap the whole result.
+- Only numeric values are stored for sure. Check before you rely on text states.
+- `INFLUX_URL` and `INFLUX_ORG` override the server and organization for the helper.
 
 ## Testing SoCo-CLI Changes
 

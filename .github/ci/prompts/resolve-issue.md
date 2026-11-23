@@ -10,10 +10,14 @@ ${ISSUE_COMMENTS}
 
 YOUR TASK:
 1. Analyze the issue and understand what needs to be done
-2. Explore the codebase to find relevant files
-3. Implement the fix or feature
-4. Run `make unit-tests` to verify your changes work
-5. Create a branch, commit your changes, and open a PR
+2. If the issue reports production behavior: rebuild the timeline from Loki and InfluxDB before you read
+   code (see "Check the Story Against Production Evidence" in AGENTS.md). Find the first event that went
+   wrong. Treat the issue's explanation of the cause as a lead to check, not a fact. If the logs disagree
+   with the issue, fix what the logs show. Say in the PR description that the cause differs from the issue.
+3. Explore the codebase to find the code path that produced that event
+4. Implement the fix or feature. For a bug, the scenario test replays the logged sequence.
+5. Run `make unit-tests` to verify your changes work
+6. Create a branch, commit your changes, and open a PR
 
 IMPORTANT RULES:
 - Use `make unit-tests` NOT `go test` (caching)
@@ -36,12 +40,12 @@ SCENARIO TESTS FIRST (see AGENTS.md):
 - Reference: scenario_sleephygiene_test.go for TDD-style cross-plugin tests
 
 BEFORE CREATING THE PR — SELF-REVIEW:
-6. Run `git diff --stat` and verify ONLY issue-scoped changes remain.
+7. Run `git diff --stat` and verify ONLY issue-scoped changes remain.
    If the diff includes code beyond the issue scope, REMOVE IT.
    The fix should be the smallest correct change.
-7. For any new external service calls: verify retry logic and appropriate timeouts.
-8. For any new test helpers with shared state: verify mutex protection.
-9. Verify new tests exercise the CURRENT production code path, not a legacy path.
+8. For any new external service calls: verify retry logic and appropriate timeouts.
+9. For any new test helpers with shared state: verify mutex protection.
+10. Verify new tests exercise the CURRENT production code path, not a legacy path.
 
 BRANCH NAMING: Use `ai/issue-${ISSUE_NUMBER}` as the branch name.
 

@@ -178,7 +178,9 @@ jobs:
               # envsubst substitutes ${WORKFLOW_NAME}, ${RUN_ID}, etc. from the
               # environment. It leaves $(cat <<…) command substitutions alone
               # because it only recognizes $VAR / ${VAR} patterns.
-              PROMPT=$(envsubst < .github/ci/prompts/diagnose-workflow-failure.md)
+              # The shared preamble comes first, as in run-ci-agent/action.yml.
+              PREAMBLE=.github/ci/prompts/_preamble.md
+              PROMPT=$( { [ -f "$PREAMBLE" ] && cat "$PREAMBLE"; cat .github/ci/prompts/diagnose-workflow-failure.md; } | envsubst)
               bash .devcontainer/run-ai.sh "$PROMPT" 2>&1 \
                 | tee /tmp/diagnose-output/diagnose-output.jsonl
             '

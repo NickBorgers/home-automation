@@ -209,7 +209,11 @@ runs:
               # shellcheck disable=SC1091
               source /tmp/ci-agent-pre-script.sh
             fi
-            PROMPT=$(envsubst < "$CI_AGENT_PROMPT_FILE")
+            # Every agent prompt starts with the shared preamble (production
+            # log tools and how to use them). A branch made before the
+            # preamble existed has no copy, so it is optional.
+            PREAMBLE=.github/ci/prompts/_preamble.md
+            PROMPT=$( { [ -f "$PREAMBLE" ] && cat "$PREAMBLE"; cat "$CI_AGENT_PROMPT_FILE"; } | envsubst)
             # Inner timeout sits below the typical 120-min workflow job
             # timeout so SIGTERM fires first, letting `tee` flush a partial
             # conversation log before the runner host kills the container.

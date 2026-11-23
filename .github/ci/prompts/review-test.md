@@ -29,6 +29,10 @@ or a refactor that existing tests already cover. If the named exception does not
 flag it as BLOCKING too.
 Reference existing patterns in test/integration/scenario_*_test.go.
 
+For a bug fix, check the scenario test against the production logs, not the issue's story. Query Loki
+for the incident window. Flag as BLOCKING a test that replays a sequence production did not log, such as
+a state write that never happened.
+
 Run `make unit-tests` to verify.
 
 IMPORTANT: Do NOT push commits. You are a parallel reviewer — only comment.
