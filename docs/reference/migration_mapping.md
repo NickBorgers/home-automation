@@ -6,10 +6,10 @@ This document maps Node Red global state variables to their Home Assistant entit
 
 ## Migration Summary
 
-- **Total state variables in Go implementation**: 46
-- **Synced with Home Assistant**: 44
+- **Total state variables in Go implementation**: 45
+- **Synced with Home Assistant**: 43
 - **Local-only (memory only)**: 2
-- **Booleans**: 33
+- **Booleans**: 32
 - **Numbers**: 3
 - **Text/String**: 8
 - **JSON (local-only)**: 1
