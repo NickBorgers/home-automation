@@ -74,7 +74,15 @@ type WaterLeakSensor struct {
 	LastChanged  time.Time
 	// Track if we've sent notification for current leak
 	NotificationSent bool
+
+	// repeatTimer fires the next repeat alert while the sensor stays "on". repeatGen is bumped each time the
+	// timer is replaced or cancelled, so a callback that was already running can tell it is stale.
+	repeatTimer clock.Timer
+	repeatGen   uint64
 }
+
+// WaterLeakRepeatInterval is how long a wet leak sensor waits after an alert before it alerts again.
+const WaterLeakRepeatInterval = 15 * time.Minute
 
 // Manager handles environmental monitoring and alerts (humidity and water leaks)
 type Manager struct {
@@ -97,6 +105,9 @@ type Manager struct {
 
 	// Water leak sensors - keyed by entity_id
 	waterLeakSensors map[string]*WaterLeakSensor
+
+	// leakRepeatStopped is true after Stop(), so no repeat timer is armed again. Protected by mu.
+	leakRepeatStopped bool
 
 	// Current alert level for humidity ("none", "warning", "critical")
 	currentAlertLevel string
@@ -158,6 +169,10 @@ func (m *Manager) GetShadowState() *shadowstate.EnvironmentalShadowState {
 // Start begins environmental monitoring
 func (m *Manager) Start() error {
 	m.logger.Info("Starting Environmental Monitoring Manager")
+
+	m.mu.Lock()
+	m.leakRepeatStopped = false
+	m.mu.Unlock()
 
 	// Discover humidity sensors dynamically
 	if err := m.discoverHumiditySensors(); err != nil {
@@ -481,6 +496,14 @@ func (m *Manager) Stop() {
 	// Unsubscribe from all subscriptions
 	m.subHelper.UnsubscribeAll()
 
+	// Cancel every repeat timer and keep them from being armed again
+	m.mu.Lock()
+	m.leakRepeatStopped = true
+	for _, sensor := range m.waterLeakSensors {
+		cancelLeakRepeatLocked(sensor)
+	}
+	m.mu.Unlock()
+
 	m.logger.Info("Environmental Monitoring Manager stopped")
 }
 
@@ -565,9 +588,12 @@ func (m *Manager) handleWaterLeakChange(entityID string, oldState, newState *ha.
 	sensor.State = newState.State
 	sensor.LastChanged = newState.LastChanged
 
-	// If leak is cleared, reset notification flag
-	if newState.State == "off" && oldSensorState == "on" {
-		sensor.NotificationSent = false
+	// Any reading other than "on" ends the leak: stop repeating and let the next "on" alert at once
+	if newState.State != "on" {
+		cancelLeakRepeatLocked(sensor)
+		if oldSensorState == "on" {
+			sensor.NotificationSent = false
+		}
 	}
 	m.mu.Unlock()
 
@@ -651,8 +677,44 @@ func (m *Manager) evaluateWaterLeaks() {
 
 	// Send notifications for new leaks
 	for _, sensor := range toNotify {
-		m.sendWaterLeakNotification(sensor)
+		m.sendWaterLeakNotification(sensor, false)
 	}
+}
+
+// cancelLeakRepeatLocked stops a sensor's repeat timer. The caller must hold m.mu.
+func cancelLeakRepeatLocked(sensor *WaterLeakSensor) {
+	if sensor.repeatTimer != nil {
+		sensor.repeatTimer.Stop()
+		sensor.repeatTimer = nil
+	}
+	sensor.repeatGen++
+}
+
+// armLeakRepeatLocked schedules the next repeat alert for a wet sensor, replacing any earlier timer.
+// The caller must hold m.mu.
+func (m *Manager) armLeakRepeatLocked(sensor *WaterLeakSensor) {
+	cancelLeakRepeatLocked(sensor)
+	if m.leakRepeatStopped || sensor.State != "on" {
+		return
+	}
+	gen := sensor.repeatGen
+	entityID := sensor.EntityID
+	sensor.repeatTimer = m.clock.AfterFunc(WaterLeakRepeatInterval, func() {
+		m.repeatWaterLeak(entityID, gen)
+	})
+}
+
+// repeatWaterLeak sends a repeat alert when the timer that armed it is still current and the sensor is still wet.
+func (m *Manager) repeatWaterLeak(entityID string, gen uint64) {
+	m.mu.Lock()
+	sensor, ok := m.waterLeakSensors[entityID]
+	if !ok || m.leakRepeatStopped || sensor.repeatGen != gen || sensor.State != "on" {
+		m.mu.Unlock()
+		return
+	}
+	m.mu.Unlock()
+
+	m.sendWaterLeakNotification(sensor, true)
 }
 
 var (
@@ -676,14 +738,21 @@ func waterLeakLocation(sensor *WaterLeakSensor) string {
 	return sensor.EntityID
 }
 
-// sendWaterLeakNotification sends a notification for a water leak
-func (m *Manager) sendWaterLeakNotification(sensor *WaterLeakSensor) {
+// sendWaterLeakNotification sends a notification for a water leak. A repeat says the leak is still there.
+// Either way, a sensor that is still wet gets its next repeat timer, measured from this alert.
+func (m *Manager) sendWaterLeakNotification(sensor *WaterLeakSensor, repeat bool) {
 	location := waterLeakLocation(sensor)
 	message := fmt.Sprintf("Water leak at the %s.", location)
+	body := fmt.Sprintf("Leak at the %s", location)
+	if repeat {
+		message = fmt.Sprintf("Water leak still at the %s.", location)
+		body = fmt.Sprintf("Leak still at the %s", location)
+	}
 
 	m.logger.Warn("Water leak detected",
 		zap.String("entity_id", sensor.EntityID),
-		zap.String("friendly_name", sensor.FriendlyName))
+		zap.String("friendly_name", sensor.FriendlyName),
+		zap.Bool("repeat", repeat))
 
 	// Record notification in shadow state
 	m.shadowTracker.RecordWaterLeakNotification(sensor.EntityID, sensor.FriendlyName, message)
@@ -691,6 +760,7 @@ func (m *Manager) sendWaterLeakNotification(sensor *WaterLeakSensor) {
 	// Mark as notified
 	m.mu.Lock()
 	sensor.NotificationSent = true
+	m.armLeakRepeatLocked(sensor)
 	m.mu.Unlock()
 
 	if m.readOnly {
@@ -708,7 +778,7 @@ func (m *Manager) sendWaterLeakNotification(sensor *WaterLeakSensor) {
 
 	if err := m.alerter.Send(context.Background(), alert.Alert{
 		Title:    "Water leak",
-		Body:     fmt.Sprintf("Leak at the %s", location),
+		Body:     body,
 		Speech:   message,
 		Urgency:  notify.UrgencyUrgent,
 		Tags:     []string{"warning", "droplet"},
@@ -1185,6 +1255,7 @@ func (m *Manager) Reset() {
 	for _, sensor := range m.waterLeakSensors {
 		sensor.State = "off"
 		sensor.NotificationSent = false
+		cancelLeakRepeatLocked(sensor)
 	}
 	m.currentAlertLevel = "none"
 	m.outdoorHumidity = 0
@@ -1287,8 +1358,11 @@ func (m *Manager) SimulateWaterLeakChange(entityID, state string) {
 	oldState := sensor.State
 	sensor.State = state
 	sensor.LastChanged = m.clock.Now()
-	if state == "off" && oldState == "on" {
-		sensor.NotificationSent = false
+	if state != "on" {
+		cancelLeakRepeatLocked(sensor)
+		if oldState == "on" {
+			sensor.NotificationSent = false
+		}
 	}
 	m.mu.Unlock()
 

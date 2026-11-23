@@ -829,7 +829,7 @@ homeautomation-go/
 │       ├── music/                   # ✅ Music Management plugin
 │       ├── sleephygiene/            # ✅ Sleep Hygiene plugin
 │       ├── tv/                      # ✅ TV Monitoring plugin
-│       ├── environmental/           # ✅ Environmental plugin (humidity, water leak)
+│       ├── environmental/           # ✅ Environmental plugin (humidity, water leak; leak alerts repeat every 15 min while wet)
 │       ├── security/                # ✅ Security plugin
 │       ├── sensorhealth/            # ✅ Sensor Health plugin (battery, node status, temp lockup)
 │       ├── infrastructure/          # ✅ Infrastructure plugin (septic, thermostat monitoring)
@@ -873,7 +873,7 @@ homeautomation-go/
 - ✅ Music Management plugin
 - ✅ Sleep Hygiene plugin
 - ✅ TV Monitoring plugin
-- ✅ Environmental plugin (humidity, water leak)
+- ✅ Environmental plugin (humidity, water leak; a wet leak sensor re-alerts every 15 minutes until it reads anything but "on")
 - ✅ Security plugin
 - ✅ Sensor Health plugin (battery, node status, temp lockup)
 - ✅ Infrastructure plugin (septic system, thermostat monitoring)
