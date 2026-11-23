@@ -2634,3 +2634,106 @@ func TestWaterLeakLocation(t *testing.T) {
 		})
 	}
 }
+
+func newLeakRepeatManager(readOnly bool) (*Manager, *alert.MockAlerter, *clock.MockClock) {
+	mockHA := ha.NewMockClient()
+	mockAlerter := &alert.MockAlerter{}
+	logger := zap.NewNop()
+	stateMgr := state.NewManager(mockHA, logger, false)
+	mockClock := clock.NewMockClock(time.Now())
+	manager := NewManagerWithClock(mockHA, stateMgr, logger, readOnly, nil, mockAlerter, mockClock)
+	manager.AddWaterLeakSensor(&WaterLeakSensor{
+		EntityID:     testWaterLeakSensor1,
+		FriendlyName: "Example Sink Water Leak",
+		DeviceName:   "Example Sink Water Leak Sensor",
+		State:        "off",
+	})
+	return manager, mockAlerter, mockClock
+}
+
+func TestEnvironmentalManager_WaterLeak_RepeatWording(t *testing.T) {
+	t.Parallel()
+	manager, mockAlerter, mockClock := newLeakRepeatManager(false)
+
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
+	mockClock.AdvanceAndProcess(WaterLeakRepeatInterval)
+
+	calls := mockAlerter.Calls()
+	if len(calls) != 2 {
+		t.Fatalf("Expected 2 alerts, got %d", len(calls))
+	}
+	if calls[0].Speech != "Water leak at the Example Sink." || calls[0].Body != "Leak at the Example Sink" {
+		t.Errorf("Unexpected first alert: %q / %q", calls[0].Speech, calls[0].Body)
+	}
+	if calls[1].Speech != "Water leak still at the Example Sink." || calls[1].Body != "Leak still at the Example Sink" {
+		t.Errorf("Unexpected repeat alert: %q / %q", calls[1].Speech, calls[1].Body)
+	}
+	if calls[1].Title != calls[0].Title || calls[1].Urgency != calls[0].Urgency || calls[1].Priority != calls[0].Priority {
+		t.Error("Repeat must keep the title and urgency of the first alert")
+	}
+}
+
+func TestEnvironmentalManager_WaterLeak_RepeatRecordsShadowState(t *testing.T) {
+	t.Parallel()
+	manager, _, mockClock := newLeakRepeatManager(false)
+
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
+	if manager.GetShadowState().Outputs.LastWaterLeakNotice == nil {
+		t.Fatal("Expected shadow state to record the first alert")
+	}
+
+	mockClock.AdvanceAndProcess(WaterLeakRepeatInterval)
+	repeat := manager.GetShadowState().Outputs.LastWaterLeakNotice
+	if repeat == nil || repeat.Message != "Water leak still at the Example Sink." {
+		t.Errorf("Expected the repeat to be recorded in shadow state, got %+v", repeat)
+	}
+}
+
+func TestEnvironmentalManager_WaterLeak_ReadOnlyRepeatDoesNotSend(t *testing.T) {
+	t.Parallel()
+	manager, mockAlerter, mockClock := newLeakRepeatManager(true)
+
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
+	mockClock.AdvanceAndProcess(2 * WaterLeakRepeatInterval)
+
+	if n := countAlerts(mockAlerter); n != 0 {
+		t.Errorf("Read-only mode must not send alerts, got %d", n)
+	}
+}
+
+func TestEnvironmentalManager_WaterLeak_StopCancelsRepeat(t *testing.T) {
+	t.Parallel()
+	manager, mockAlerter, mockClock := newLeakRepeatManager(false)
+
+	manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
+	manager.Stop()
+	mockClock.AdvanceAndProcess(3 * WaterLeakRepeatInterval)
+
+	if n := countAlerts(mockAlerter); n != 1 {
+		t.Errorf("Expected only the first alert after Stop, got %d", n)
+	}
+}
+
+func TestEnvironmentalManager_WaterLeak_RepeatStopsOnAnyNonOnState(t *testing.T) {
+	t.Parallel()
+
+	for _, next := range []string{"off", "unavailable", "unknown"} {
+		t.Run(next, func(t *testing.T) {
+			t.Parallel()
+			manager, mockAlerter, mockClock := newLeakRepeatManager(false)
+
+			manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
+			mockClock.AdvanceAndProcess(WaterLeakRepeatInterval - time.Minute)
+			manager.SimulateWaterLeakChange(testWaterLeakSensor1, next)
+			mockClock.AdvanceAndProcess(3 * WaterLeakRepeatInterval)
+			if n := countAlerts(mockAlerter); n != 1 {
+				t.Fatalf("Expected no repeat after %q, got %d alerts", next, n)
+			}
+
+			manager.SimulateWaterLeakChange(testWaterLeakSensor1, "on")
+			if n := countAlerts(mockAlerter); n != 2 {
+				t.Errorf("Expected an immediate alert on the next leak, got %d alerts", n)
+			}
+		})
+	}
+}

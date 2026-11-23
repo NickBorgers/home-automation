@@ -1170,7 +1170,7 @@ graph LR
     HumiditySensors --> EnvironmentalPlugin
     WeatherStationHumidity -->|Outdoor Reference| EnvironmentalPlugin
     WaterLeakSensors --> EnvironmentalPlugin
-    EnvironmentalPlugin -.->|Notifications| Ntfy[ntfy.sh]
+    EnvironmentalPlugin -.->|"Notifications (leak alerts repeat every 15 min while wet)"| Ntfy[ntfy.sh]
 
     BatteryStateSensors --> SensorHealthPlugin
     NodeStatusSensors --> SensorHealthPlugin
