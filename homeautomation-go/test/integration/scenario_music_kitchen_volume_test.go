@@ -12,11 +12,11 @@ import (
 
 // TestScenario_MusicKitchenVolumes verifies the Kitchen speaker's base volume in each zone.
 //
-// Story: "The Kitchen's rain sounds are too loud. I want them 25% quieter."
+// Story: "Music is too loud in every profile. I want it 30% quieter."
 //
-// Invariant: Kitchen's sleep-prep base volume (the zone that plays rain sounds) is 25% below its
-// earlier value of 11, rounded to the nearest whole step. The shared rain multiplier is unchanged.
-// Kitchen is not a participant in the sleep zone. Other zones keep their earlier Kitchen volumes.
+// Invariant: Kitchen's base volume in each zone is 70% of its earlier value, rounded to the nearest
+// whole step. The shared rain multiplier is unchanged. Kitchen is not a participant in the sleep zone.
+// scenario_music_volume_reduction_test.go checks every speaker; this test keeps the Kitchen focus.
 func TestScenario_MusicKitchenVolumes(t *testing.T) {
 	t.Parallel()
 	t.Log("GIVEN: the production music playback zones")
@@ -24,11 +24,11 @@ func TestScenario_MusicKitchenVolumes(t *testing.T) {
 	require.NoError(t, err)
 
 	expected := map[string]int{
-		"morning":    10,
-		"day":        11,
-		"evening":    10,
-		"winddown":   9,
-		"sleep-prep": 8,
+		"morning":    7,
+		"day":        8,
+		"evening":    7,
+		"winddown":   6,
+		"sleep-prep": 6,
 	}
 
 	for zoneName, mode := range config.Music {

@@ -26,7 +26,7 @@ func TestScenario_MusicSoundbarFollowsKitchen(t *testing.T) {
 				kitchenZones[zoneName] = true
 			case "Soundbar":
 				soundbarZones[zoneName] = true
-				assert.Equal(t, 10, participant.BaseVolume,
+				assert.Equal(t, 7, participant.BaseVolume,
 					"Soundbar should retain its independently configured target volume in %s", zoneName)
 				assert.Equal(t, []music.MuteCondition{{Variable: "isGuestAsleep", Value: true}},
 					participant.LeaveMutedIf,

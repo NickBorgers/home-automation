@@ -18,7 +18,7 @@ import (
 //
 // INVARIANTS:
 //   - Every configured rain playlist uses the same effective targets in sleep-prep and sleep.
-//   - Primary Bed targets 24; the other targets preserve their configured room balance.
+//   - Primary Bed targets 16; the other targets preserve their configured room balance.
 //   - Effective volumes use the production rounding rule: round(base volume * playlist multiplier).
 func TestScenario_RainPlaybackUsesRaisedVolumeTargets(t *testing.T) {
 	t.Log("GIVEN: the production sleep-prep and sleep rain profiles")
@@ -27,10 +27,10 @@ func TestScenario_RainPlaybackUsesRaisedVolumeTargets(t *testing.T) {
 
 	expected := map[string]map[string]int{
 		"sleep-prep": {
-			"Pantry": 14, "Utility": 13, "Lounge": 14, "Kitchen": 13, "Soundbar": 16,
-			"Primary Bed": 24, "Primary Bath": 14, "Sitting": 14,
+			"Pantry": 10, "Utility": 8, "Lounge": 10, "Kitchen": 10, "Soundbar": 11,
+			"Primary Bed": 16, "Primary Bath": 10, "Sitting": 10,
 		},
-		"sleep": {"Primary Bed": 24, "Primary Bath": 14},
+		"sleep": {"Primary Bed": 16, "Primary Bath": 10},
 	}
 
 	for _, modeName := range []string{"sleep-prep", "sleep"} {

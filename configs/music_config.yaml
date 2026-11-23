@@ -128,32 +128,32 @@ music:
     participants:
       # Pantry leads: strongest Wi-Fi link of the wireless speakers.
       - player_name: "Pantry"
-        base_volume: 8
+        base_volume: 6
         leave_muted_if: []
       # Follows Pantry, one step quieter.
       - player_name: "Utility"
-        base_volume: 7
+        base_volume: 5
         leave_muted_if: []
       - player_name: "Lounge"
-        base_volume: 8
+        base_volume: 6
         leave_muted_if: []
       - player_name: "Kitchen"
-        base_volume: 10
+        base_volume: 7
         leave_muted_if:
           - variable: isTVPlaying
             value: true
       - player_name: "Soundbar"
-        base_volume: 10
+        base_volume: 7
         leave_muted_if:
           - variable: isGuestAsleep
             value: true
       - player_name: "Kids Bathroom"
-        base_volume: 7
+        base_volume: 5
         leave_muted_if:
           - variable: isTVPlaying
             value: true
       - player_name: "Primary Bed"
-        base_volume: 7
+        base_volume: 5
         # Exclude during wake sequence (Primary Bed stays on sleep zone)
         exclude_if:
           - variable: isMasterAsleep
@@ -161,13 +161,13 @@ music:
       # Follows Primary Bed out of the sleep zone once the master is awake.
       # sleephygiene fades its rain out at the alarm, like Primary Bed.
       - player_name: "Primary Bath"
-        base_volume: 7
+        base_volume: 5
         leave_muted_if: []
         exclude_if:
           - variable: isMasterAsleep
             value: true
       - player_name: "Sitting"
-        base_volume: 8
+        base_volume: 6
         leave_muted_if:
           - variable: isTVPlaying
             value: true
@@ -201,43 +201,43 @@ music:
     participants:
       # Pantry leads: strongest Wi-Fi link of the wireless speakers.
       - player_name: "Pantry"
-        base_volume: 9
+        base_volume: 6
         leave_muted_if: []
       # Follows Pantry, one step quieter.
       - player_name: "Utility"
-        base_volume: 8
+        base_volume: 5
         leave_muted_if: []
       - player_name: "Lounge"
-        base_volume: 9
+        base_volume: 6
         leave_muted_if: []
       - player_name: "Kitchen"
-        base_volume: 11
+        base_volume: 8
         leave_muted_if:
           - variable: isTVPlaying
             value: true
       - player_name: "Soundbar"
-        base_volume: 10
+        base_volume: 7
         leave_muted_if:
           - variable: isGuestAsleep
             value: true
       - player_name: "Kids Bathroom"
-        base_volume: 7
+        base_volume: 5
         leave_muted_if:
           - variable: isTVPlaying
             value: true
       - player_name: "Primary Bed"
-        base_volume: 7
+        base_volume: 5
         leave_muted_if:
           - variable: isMasterAsleep
             value: true
       # Follows Primary Bed so the whole suite plays the same music.
       - player_name: "Primary Bath"
-        base_volume: 7
+        base_volume: 5
         leave_muted_if:
           - variable: isMasterAsleep
             value: true
       - player_name: "Sitting"
-        base_volume: 9
+        base_volume: 6
         leave_muted_if:
           - variable: isTVPlaying
             value: true
@@ -286,43 +286,43 @@ music:
     participants:
       # Pantry leads: strongest Wi-Fi link of the wireless speakers.
       - player_name: "Pantry"
-        base_volume: 8
+        base_volume: 6
         leave_muted_if: []
       # Follows Pantry, one step quieter.
       - player_name: "Utility"
-        base_volume: 7
+        base_volume: 5
         leave_muted_if: []
       - player_name: "Lounge"
-        base_volume: 8
+        base_volume: 6
         leave_muted_if: []
       - player_name: "Kitchen"
-        base_volume: 10
+        base_volume: 7
         leave_muted_if:
           - variable: isTVPlaying
             value: true
       - player_name: "Soundbar"
-        base_volume: 10
+        base_volume: 7
         leave_muted_if:
           - variable: isGuestAsleep
             value: true
       - player_name: "Kids Bathroom"
-        base_volume: 8
+        base_volume: 6
         leave_muted_if:
           - variable: isTVPlaying
             value: true
       - player_name: "Primary Bed"
-        base_volume: 5
+        base_volume: 4
         exclude_if:
           - variable: isMasterAsleep
             value: true
       # Follows Primary Bed so the whole suite plays the same music.
       - player_name: "Primary Bath"
-        base_volume: 5
+        base_volume: 4
         exclude_if:
           - variable: isMasterAsleep
             value: true
       - player_name: "Sitting"
-        base_volume: 8
+        base_volume: 6
         leave_muted_if:
           - variable: isTVPlaying
             value: true
@@ -432,43 +432,43 @@ music:
     participants:
       # Pantry leads: strongest Wi-Fi link of the wireless speakers.
       - player_name: "Pantry"
-        base_volume: 7
+        base_volume: 5
         leave_muted_if: []
       # Follows Pantry, one step quieter.
       - player_name: "Utility"
-        base_volume: 6
+        base_volume: 4
         leave_muted_if: []
       - player_name: "Lounge"
-        base_volume: 7
+        base_volume: 5
         leave_muted_if: []
       - player_name: "Kitchen"
-        base_volume: 9
+        base_volume: 6
         leave_muted_if:
           - variable: isTVPlaying
             value: true
       - player_name: "Soundbar"
-        base_volume: 10
+        base_volume: 7
         leave_muted_if:
           - variable: isGuestAsleep
             value: true
       - player_name: "Kids Bathroom"
-        base_volume: 8
+        base_volume: 6
         leave_muted_if:
           - variable: isTVPlaying
             value: true
       - player_name: "Primary Bed"
-        base_volume: 5
+        base_volume: 4
         exclude_if:
           - variable: isMasterAsleep
             value: true
       # Follows Primary Bed so the whole suite plays the same music.
       - player_name: "Primary Bath"
-        base_volume: 5
+        base_volume: 4
         exclude_if:
           - variable: isMasterAsleep
             value: true
       - player_name: "Sitting"
-        base_volume: 7
+        base_volume: 5
         leave_muted_if:
           - variable: isTVPlaying
             value: true
@@ -501,40 +501,40 @@ music:
   sleep-prep:
     participants:
       - player_name: "Pantry"
-        base_volume: 9
+        base_volume: 6
         leave_muted_if: []
       # Follows Pantry, one step quieter.
       - player_name: "Utility"
-        base_volume: 8
+        base_volume: 5
         leave_muted_if: []
       - player_name: "Lounge"
-        base_volume: 9
+        base_volume: 6
         leave_muted_if: []
       - player_name: "Kitchen"
-        base_volume: 8
+        base_volume: 6
         leave_muted_if:
           - variable: isTVPlaying
             value: true
       - player_name: "Soundbar"
-        base_volume: 10
+        base_volume: 7
         leave_muted_if:
           - variable: isGuestAsleep
             value: true
       - player_name: "Primary Bed"
-        base_volume: 15
+        base_volume: 10
         leave_muted_if: []
       - player_name: "Primary Bath"
-        base_volume: 9
+        base_volume: 6
         leave_muted_if: []
       - player_name: "Sitting"
-        base_volume: 9
+        base_volume: 6
         leave_muted_if:
           - variable: isTVPlaying
             value: true
     playback_options:
       # Rain sounds - 2h composite playlists (avoids Sonos loop degradation)
-      # Multiplier 1.6 chosen to hit effective volumes 14 / 16 / 24 from base volumes 9 / 10 / 15.
-      # Kitchen (base 8) reaches 13 and Utility (base 8) reaches 13.
+      # Multiplier 1.6 gives effective volumes 10 / 11 / 16 from base volumes 6 / 7 / 10.
+      # Kitchen (base 6) reaches 10 and Utility (base 5) reaches 8.
       # yamllint disable-line rule:line-length
       - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-1.m3u"
         media_type: music
@@ -549,14 +549,14 @@ music:
   sleep:
     participants:
       - player_name: "Primary Bed"
-        base_volume: 15
+        base_volume: 10
         leave_muted_if: []
       - player_name: "Primary Bath"
-        base_volume: 9
+        base_volume: 6
         leave_muted_if: []
     playback_options:
       # Rain sounds - 2h composite playlists (avoids Sonos loop degradation)
-      # Multiplier 1.6 chosen to hit effective volumes 14 / 24 from base volumes 9 / 15.
+      # Multiplier 1.6 gives effective volumes 10 / 16 from base volumes 6 / 10.
       # yamllint disable-line rule:line-length
       - uri: "http://rain-sounds.nickborgers.net:8080/playlists/sleep-rain-1.m3u"
         media_type: music
@@ -568,7 +568,7 @@ music:
   sex:
     participants:
       - player_name: "Primary Bed"
-        base_volume: 8
+        base_volume: 6
         leave_muted_if: []
     playback_options:
       # Sensual songs for naughty times (Tidal) — 256 tracks, sensual mood
@@ -579,7 +579,7 @@ music:
   wakeup:
     participants:
       - player_name: "Primary Bed"
-        base_volume: 5
+        base_volume: 4
         leave_muted_if: []
     playback_options:
       # Soft Soundtracks (Tidal) — gentle ambient/modern classical, replaces Spotify "Ambient Relaxation"

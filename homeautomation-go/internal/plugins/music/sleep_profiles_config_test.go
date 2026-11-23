@@ -14,7 +14,7 @@ import (
 // should play them too, both before bed and while we sleep."
 //
 // INVARIANTS:
-//   - Primary Bed plays at 15 in both profiles (12 raised by 25%).
+//   - Primary Bed plays at 10 in both profiles.
 //   - Primary Bath is a participant in both profiles.
 func TestProductionConfig_SleepProfilesPrimarySuite(t *testing.T) {
 	t.Parallel()
@@ -27,7 +27,7 @@ func TestProductionConfig_SleepProfilesPrimarySuite(t *testing.T) {
 		for _, p := range config.Music[mode].Participants {
 			volumes[p.PlayerName] = p.BaseVolume
 		}
-		assert.Equal(t, 15, volumes["Primary Bed"], "%s: Primary Bed volume", mode)
-		assert.Equal(t, 9, volumes["Primary Bath"], "%s: Primary Bath volume", mode)
+		assert.Equal(t, 10, volumes["Primary Bed"], "%s: Primary Bed volume", mode)
+		assert.Equal(t, 6, volumes["Primary Bath"], "%s: Primary Bath volume", mode)
 	}
 }
