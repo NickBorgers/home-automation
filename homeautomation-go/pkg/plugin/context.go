@@ -9,6 +9,7 @@ import (
 	"homeautomation/internal/ntfy"
 	"homeautomation/internal/shadowstate"
 	pkgha "homeautomation/pkg/ha"
+	"homeautomation/pkg/lighthold"
 	"homeautomation/pkg/occupancy"
 	pkgstate "homeautomation/pkg/state"
 
@@ -98,6 +99,10 @@ type Context struct {
 	// other plugins read it. May be nil in tests. A reader must treat a nil hub, or an area the hub does
 	// not know, as occupied when people's safety depends on it.
 	Occupancy *occupancy.Hub
+
+	// LightHolds lets plugins protect time-limited light decisions from lighting room turn-offs.
+	// May be nil in tests.
+	LightHolds *lighthold.Hub
 }
 
 // NewContext creates a new plugin context with all required dependencies.
