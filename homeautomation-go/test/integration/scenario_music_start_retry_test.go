@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -440,6 +442,77 @@ func TestScenario_ExplicitSexMusicSurvivesRetryAndAutomaticModeRestore(t *testin
 		}
 	}
 	require.Equal(t, "sex", primaryBedZone)
+}
+
+// TestScenario_DelayedWinddownJoinDoesNotTakeOverSexMusic reproduces the real cause of issue #1477.
+//
+// Winddown starts and schedules each follower to join the lead's group after a delay
+// of up to minutes. Sex mode starts before the bedroom speaker's turn comes. When the
+// delay ends, the old join must not pull the bedroom speaker into the winddown group.
+//
+// INVARIANT: While input_boolean.sex is on, Primary Bed receives no group command.
+func TestScenario_DelayedWinddownJoinDoesNotTakeOverSexMusic(t *testing.T) {
+	t.Parallel()
+	server, client, stateManager, cleanup := setupTest(t)
+	defer cleanup()
+
+	var musicConfig music.MusicConfig
+	require.NoError(t, yaml.Unmarshal([]byte(sexOverrideRetryMusicConfig), &musicConfig))
+
+	soco := newFakeSoCoServer()
+	socoServer := httptest.NewServer(soco)
+	defer socoServer.Close()
+
+	// Hold the follower join's stagger delay until the test releases it. All other
+	// waits return at once.
+	joinGate := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(joinGate) }) }
+	defer release()
+	var heldJoins atomic.Int32
+
+	logger := testlogger.New()
+	musicMgr := music.NewManager(context.Background(), client, stateManager, &musicConfig, logger, false, nil, nil)
+	musicMgr.SetSleepFunc(func(time.Duration) {
+		if strings.Contains(string(debug.Stack()), "buildSpeakerGroupAsync") {
+			heldJoins.Add(1)
+			<-joinGate
+		}
+	})
+	musicMgr.SetSoCoClient(music.NewSoCoClient(socoServer.URL, logger, false))
+	sexModeMgr := sexmode.NewManager(context.Background(), client, stateManager, logger, false, nil)
+
+	// GIVEN: Winddown starts. Primary Bed's join to the Pantry group is still waiting.
+	t.Log("GIVEN: winddown starts and Primary Bed's delayed join is pending")
+	server.SetState("input_boolean.sex", "off", nil)
+	server.SetState("input_boolean.anyone_home", "on", nil)
+	server.SetState("input_text.day_phase", "winddown", nil)
+	require.NoError(t, musicMgr.Start())
+	defer musicMgr.Stop()
+	require.NoError(t, sexModeMgr.Start())
+	defer sexModeMgr.Stop()
+	waitForCondition(t, func() bool {
+		return soco.isPlaying("Pantry", "http://music.test/winddown.m3u") && heldJoins.Load() > 0
+	}, "winddown should play on Pantry with Primary Bed's join still pending")
+
+	// WHEN T+13s: Sex mode is turned on and sex music plays on Primary Bed.
+	t.Log("WHEN T+13s: sex mode is turned on")
+	server.SetState("input_boolean.sex", "on", nil)
+	waitForCondition(t, func() bool {
+		return zonePlaybackStatus(musicMgr, "sex") == music.ZonePlaybackPlaying &&
+			soco.isPlaying("Primary Bed", "http://music.test/sex.m3u")
+	}, "sex music should play on Primary Bed")
+
+	// WHEN T+2min: The delay that winddown scheduled for Primary Bed's join ends.
+	t.Log("WHEN T+2min: winddown's delayed join for Primary Bed comes due")
+	release()
+
+	// THEN: Primary Bed is not grouped with Pantry and keeps playing sex music.
+	t.Log("THEN: Primary Bed stays out of the winddown group")
+	require.Never(t, func() bool {
+		return soco.callCount("Primary Bed", "group") > 0
+	}, 500*time.Millisecond, 10*time.Millisecond, "a stale winddown join must not group Primary Bed")
+	require.Equal(t, music.ZonePlaybackPlaying, zonePlaybackStatus(musicMgr, "sex"))
 }
 
 // TestScenario_SleepPrepRain_RetryStopsWhenZoneEnds checks that a pending retry

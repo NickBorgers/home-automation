@@ -345,6 +345,20 @@ func (zm *ZoneManager) IsCurrentSpeakerAssignment(zone *Zone, speaker string) bo
 	return zm.activeZones[zone.Name] == zone && zm.speakerZone[speaker] == zone.Name
 }
 
+// SpeakerFollowsLead reports whether the speaker's current zone is led by lead.
+// A follower join planned when a zone started uses it to drop the join if a later
+// resolution moved the speaker to a zone with a different lead.
+func (zm *ZoneManager) SpeakerFollowsLead(speaker, lead string) bool {
+	zm.mu.RLock()
+	defer zm.mu.RUnlock()
+	zoneName, ok := zm.speakerZone[speaker]
+	if !ok {
+		return false
+	}
+	zone, ok := zm.activeZones[zoneName]
+	return ok && zone.LeadSpeaker == lead
+}
+
 // StopAllZones stops all active zones
 func (zm *ZoneManager) StopAllZones(reason string) {
 	// Cancel any pending debounce timer to prevent goroutine leaks

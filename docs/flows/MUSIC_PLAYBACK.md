@@ -202,6 +202,10 @@ The async approach provides faster perceived playback start:
 
 Followers that fail to join (e.g., speaker offline) are logged but don't block playback. Followers whose mute conditions were met at playback start are pre-silenced before the join attempt, so a join failure cannot leave them playing unmuted (issue #998).
 
+A follower's join can wait minutes for its stagger and retry delays. Before each attempt, the plugin checks that
+the speaker still belongs to a zone led by the same lead speaker. If a later zone resolution moved the speaker, for
+example into the `sex` zone, the plugin drops the join. The old zone cannot pull the speaker back (issue #1477).
+
 ## Zone Start Retry
 
 The lead speaker can stop answering at the moment a zone starts. On 2026-11-17, Pantry stopped answering for about
