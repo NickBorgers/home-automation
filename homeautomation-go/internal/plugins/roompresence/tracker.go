@@ -392,7 +392,7 @@ func (t *Tracker) endSilentTracks(now time.Time) {
 		silent := fmt.Sprintf("no update from Frigate for %s", limit)
 		// The track is in t.ended once endTrack or finishTrack returns. tr is the same pointer, so the
 		// outcome and end time set below still reach shadow state and the hand-off rules later in Tick.
-		if tr.confirmed {
+		if tr.started {
 			t.endTrack(now, tr, FrigateObject{CurrentZones: tr.current, EnteredZones: tr.zones})
 			tr.outcome = silent + "; " + tr.outcome // e.g. "...; token stays in kitchen", "...; dropped: never confirmed"
 		} else {
