@@ -792,7 +792,10 @@ func (m *Manager) activateScene(ctx context.Context, room *RoomConfig, dayPhase 
 		m.recordAction(room.HueGroup, "activate_scene",
 			fmt.Sprintf("Would activate scene '%s'", dayPhase),
 			dayPhase, false, trigger)
-		m.activateCompanionScenes(ctx, room, dayPhase, nil)
+		// Mirror live mode: companions are skipped when the main scene is missing.
+		if sceneProblem == "" {
+			m.activateCompanionScenes(ctx, room, dayPhase, nil)
+		}
 		return
 	}
 

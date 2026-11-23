@@ -147,3 +147,15 @@ func TestActivateScene_ReadOnlyNotesMissingScene(t *testing.T) {
 	assert.True(t, hasLog(logs, zapcore.WarnLevel, "READ-ONLY: Scene to activate has a problem: scene entity does not exist"))
 	assert.Equal(t, "activate_scene", manager.GetShadowState().Outputs.Rooms["Kitchen"].ActionType)
 }
+
+func TestActivateScene_ReadOnlySkipsCompanionsWhenMainSceneMissing(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	seedScenes(env.MockHA, "Some Companion")
+	manager, logs := newObservedManager(t, env.MockHA, env, true)
+
+	manager.activateScene(context.Background(), companionRoom(nil, false, "Some Companion"), "dusk", "dayPhase")
+
+	assert.Empty(t, env.MockHA.GetServiceCalls())
+	assert.False(t, hasLog(logs, zapcore.InfoLevel, "READ-ONLY: Would activate companion scene"))
+}
