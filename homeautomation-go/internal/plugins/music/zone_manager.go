@@ -337,6 +337,14 @@ func (zm *ZoneManager) GetSpeakerZone(speaker string) (string, bool) {
 	return zoneName, exists
 }
 
+// IsCurrentSpeakerAssignment reports whether this exact zone still owns a speaker.
+// Async group work uses it to discard operations planned by an older resolution.
+func (zm *ZoneManager) IsCurrentSpeakerAssignment(zone *Zone, speaker string) bool {
+	zm.mu.RLock()
+	defer zm.mu.RUnlock()
+	return zm.activeZones[zone.Name] == zone && zm.speakerZone[speaker] == zone.Name
+}
+
 // StopAllZones stops all active zones
 func (zm *ZoneManager) StopAllZones(reason string) {
 	// Cancel any pending debounce timer to prevent goroutine leaks

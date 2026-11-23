@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"homeautomation/internal/plugins/music"
+	"homeautomation/internal/plugins/sexmode"
 	"homeautomation/internal/testlogger"
 
 	"github.com/stretchr/testify/require"
@@ -62,6 +63,42 @@ music:
         leave_muted_if: []
     playback_options:
       - uri: ` + startRetryRainURI + `
+        media_type: music
+        volume_multiplier: 1.0
+`
+
+const sexOverrideRetryMusicConfig = `
+zones:
+  - name: "winddown"
+    priority: 80
+    trigger:
+      - variable: dayPhase
+        value: winddown
+      - variable: isAnyoneHome
+        value: true
+  - name: "sex"
+    priority: 150
+    trigger: []
+music:
+  winddown:
+    participants:
+      - player_name: "Pantry"
+        base_volume: 7
+        leave_muted_if: []
+      - player_name: "Primary Bed"
+        base_volume: 5
+        leave_muted_if: []
+    playback_options:
+      - uri: "http://music.test/winddown.m3u"
+        media_type: music
+        volume_multiplier: 1.0
+  sex:
+    participants:
+      - player_name: "Primary Bed"
+        base_volume: 8
+        leave_muted_if: []
+    playback_options:
+      - uri: "http://music.test/sex.m3u"
         media_type: music
         volume_multiplier: 1.0
 `
@@ -333,6 +370,75 @@ func TestScenario_SleepPrepRain_RetriesWhenLeadSpeakerHangsDuringStart(t *testin
 	waitForCondition(t, func() bool {
 		return zonePlaybackStatus(musicMgr, "sleep-prep") == music.ZonePlaybackPlaying
 	}, "sleep-prep should be marked as playing once Pantry plays")
+}
+
+// TestScenario_ExplicitSexMusicSurvivesRetryAndAutomaticModeRestore reproduces issue #1477.
+//
+// INVARIANT: Once sex mode explicitly starts sex music, automatic mode writers cannot
+// replace it or regroup Primary Bed until input_boolean.sex is deliberately turned off.
+func TestScenario_ExplicitSexMusicSurvivesRetryAndAutomaticModeRestore(t *testing.T) {
+	server, client, stateManager, cleanup := setupTest(t)
+	defer cleanup()
+
+	var musicConfig music.MusicConfig
+	require.NoError(t, yaml.Unmarshal([]byte(sexOverrideRetryMusicConfig), &musicConfig))
+
+	soco := newFakeSoCoServer()
+	socoServer := httptest.NewServer(soco)
+	defer socoServer.Close()
+
+	logger := testlogger.New()
+	musicMgr := music.NewManager(context.Background(), client, stateManager, &musicConfig, logger, false, nil, nil)
+	musicMgr.SetSleepFunc(func(time.Duration) {})
+	musicMgr.SetSoCoClient(music.NewSoCoClient(socoServer.URL, logger, false))
+	musicMgr.SetZoneStartRetryDelays([]time.Duration{20 * time.Millisecond})
+	sexModeMgr := sexmode.NewManager(context.Background(), client, stateManager, logger, false, nil)
+
+	server.SetState("input_boolean.sex", "off", nil)
+	server.SetState("input_boolean.anyone_home", "on", nil)
+	server.SetState("input_text.day_phase", "winddown", nil)
+	require.NoError(t, musicMgr.Start())
+	defer musicMgr.Stop()
+	require.NoError(t, sexModeMgr.Start())
+	defer sexModeMgr.Stop()
+	waitForProcessing(t, stateManager)
+
+	// GIVEN: Automatic winddown is active and Primary Bed will reject the first sex start.
+	t.Log("GIVEN: winddown is active and Primary Bed is temporarily unreachable")
+	soco.setUnreachable("Primary Bed", true)
+
+	// WHEN T+0: The user explicitly activates sex mode.
+	t.Log("WHEN T+0: sex mode is explicitly activated")
+	server.SetState("input_boolean.sex", "on", nil)
+	waitForCondition(t, func() bool {
+		return zonePlaybackStatus(musicMgr, "sex") == music.ZonePlaybackRetrying
+	}, "sex music should retry after its initial start fails")
+
+	// WHEN T+30s: Primary Bed recovers and the retry succeeds.
+	t.Log("WHEN T+30s: Primary Bed recovers and sex playback succeeds on retry")
+	soco.setUnreachable("Primary Bed", false)
+	waitForCondition(t, func() bool {
+		return zonePlaybackStatus(musicMgr, "sex") == music.ZonePlaybackPlaying
+	}, "sex music should play after retry")
+
+	// WHEN T+15min: An automatic writer restores the prior winddown type.
+	t.Log("WHEN T+15min: automatic mode behavior tries to restore winddown")
+	require.NoError(t, stateManager.SetString("musicPlaybackType", "winddown"))
+
+	// THEN: The explicit override remains authoritative until input_boolean.sex is turned off.
+	t.Log("THEN: sex music remains active and Primary Bed stays assigned to the sex zone")
+	waitForStringState(t, stateManager, "musicPlaybackType", "sex",
+		"active sex mode should reject an automatic music type replacement")
+	require.Equal(t, music.ZonePlaybackPlaying, zonePlaybackStatus(musicMgr, "sex"))
+	var primaryBedZone string
+	for _, activeZone := range musicMgr.GetActiveZones() {
+		for _, participant := range activeZone.Participants {
+			if participant.PlayerName == "Primary Bed" {
+				primaryBedZone = activeZone.Name
+			}
+		}
+	}
+	require.Equal(t, "sex", primaryBedZone)
 }
 
 // TestScenario_SleepPrepRain_RetryStopsWhenZoneEnds checks that a pending retry

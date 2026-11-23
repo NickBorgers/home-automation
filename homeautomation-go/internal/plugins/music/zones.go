@@ -108,6 +108,12 @@ func (m *Manager) addSpeakersToZone(zone *Zone, speakers []string, trigger strin
 		if !speakerSet[p.PlayerName] {
 			continue
 		}
+		if m.zoneManager != nil && !m.zoneManager.IsCurrentSpeakerAssignment(zone, p.PlayerName) {
+			m.logger.Info("Skipping stale speaker add",
+				zap.String("speaker", p.PlayerName),
+				zap.String("zone", zone.Name))
+			continue
+		}
 
 		// Check exclude_if conditions (consistent with assignSpeakersToZones)
 		if !m.shouldIncludeInZone(p) {
@@ -123,6 +129,12 @@ func (m *Manager) addSpeakersToZone(zone *Zone, speakers []string, trigger strin
 			m.logger.Warn("Failed to zero volume before group join",
 				zap.String("speaker", p.PlayerName),
 				zap.Error(err))
+		}
+		if m.zoneManager != nil && !m.zoneManager.IsCurrentSpeakerAssignment(zone, p.PlayerName) {
+			m.logger.Info("Skipping stale speaker join",
+				zap.String("speaker", p.PlayerName),
+				zap.String("zone", zone.Name))
+			continue
 		}
 
 		// Join the zone's Sonos group

@@ -126,6 +126,12 @@ flowchart TD
 | `sleep` | (triggered by sleep state) | Rain sounds | Triggered by isAnyoneAsleep, not day phase |
 | `wakeup` | (alarm trigger) | Ambient relaxation | Gentle wake-up music (set by sleep hygiene plugin) |
 
+An explicitly activated `sex` session owns the bedroom music selection while
+`input_boolean.sex` remains on. Automatic day-phase selection and restoration of a
+previous mode cannot replace that session, including while its zone start is retrying.
+Turning `input_boolean.sex` off deliberately ends the override and restores normal
+automatic selection.
+
 ## Playback Orchestration
 
 When a music mode is selected, the following sequence executes. The key optimization is **async speaker grouping**: the lead speaker starts playing immediately while follower speakers join the group in the background.
