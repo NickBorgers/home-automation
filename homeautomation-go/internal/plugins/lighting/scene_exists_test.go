@@ -159,3 +159,19 @@ func TestActivateScene_ReadOnlySkipsCompanionsWhenMainSceneMissing(t *testing.T)
 	assert.Empty(t, env.MockHA.GetServiceCalls())
 	assert.False(t, hasLog(logs, zapcore.InfoLevel, "READ-ONLY: Would activate companion scene"))
 }
+
+func TestActivateScene_ReadOnlyMissingCompanionHasReadOnlyPrefix(t *testing.T) {
+	t.Parallel()
+	env := testutil.NewEnv(t)
+	// Main scene exists; companion does not.
+	seedScenes(env.MockHA, "Kitchen")
+	manager, logs := newObservedManager(t, env.MockHA, env, true)
+
+	manager.activateScene(context.Background(), companionRoom(nil, false, "Missing Companion"), "dusk", "dayPhase")
+
+	assert.Empty(t, env.MockHA.GetServiceCalls())
+	assert.True(t, hasLog(logs, zapcore.WarnLevel, "READ-ONLY: Companion scene has a problem: scene entity does not exist"),
+		"missing companion in read-only mode must carry READ-ONLY prefix, not look like a live failure")
+	assert.False(t, hasLog(logs, zapcore.WarnLevel, "Failed to activate companion scene: scene entity does not exist"),
+		"must not log the live-mode message in read-only mode")
+}

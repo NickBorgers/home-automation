@@ -990,7 +990,8 @@ func companionSuffix(activated []string) string {
 // given day phase with scene.turn_on, using the same transition (nil for none)
 // as the main scene. It must only be called after the main scene succeeded.
 // A companion whose scene entity is missing or unavailable is skipped with a
-// warning, without a service call. A failing companion is logged at warn level and skipped; the remaining
+// warning, without a service call. A companion whose service call itself fails
+// is also logged at warn level and skipped. In both cases the remaining
 // companions still run. If ctx is cancelled it stops quietly. In READ_ONLY mode
 // it only logs. It returns the entity IDs that were activated.
 func (m *Manager) activateCompanionScenes(ctx context.Context, room *RoomConfig, dayPhase string,
@@ -1000,9 +1001,15 @@ func (m *Manager) activateCompanionScenes(ctx context.Context, room *RoomConfig,
 		entityID := "scene." + toSnakeCase(base+" "+dayPhase)
 
 		if problem := m.sceneProblem(entityID); problem != "" {
-			m.logger.Warn("Failed to activate companion scene: "+problem,
-				zap.String("room", room.HueGroup),
-				zap.String("entity_id", entityID))
+			if m.readOnly {
+				m.logger.Warn("READ-ONLY: Companion scene has a problem: "+problem,
+					zap.String("room", room.HueGroup),
+					zap.String("entity_id", entityID))
+			} else {
+				m.logger.Warn("Failed to activate companion scene: "+problem,
+					zap.String("room", room.HueGroup),
+					zap.String("entity_id", entityID))
+			}
 			continue
 		}
 
