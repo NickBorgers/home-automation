@@ -182,7 +182,7 @@ sequenceDiagram
                     Music->>Followers: Set target volume (stays muted)
                 end
             else Join failed (permanent error)
-                Note over Followers: Follower already pre-muted if<br/>mute condition was met; join<br/>failure leaves it silent
+                Note over Followers: Follower already pre-muted if<br/>mute condition was met, so join<br/>failure leaves it silent
             end
         end
     end
