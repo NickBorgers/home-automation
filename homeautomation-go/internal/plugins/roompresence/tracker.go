@@ -3,6 +3,7 @@ package roompresence
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"homeautomation/internal/shadowstate"
@@ -378,7 +379,34 @@ func (t *Tracker) Reconnected(now time.Time) {
 	}
 }
 
-// Tick applies the time-based rules: camera health, hand-off timeouts, expiry and nobody home.
+// endSilentTracks ends every track that has sent nothing for track_silence_timeout, as if Frigate had ended
+// it. Frigate sometimes stops sending messages for a track and never ends it. Until the track ends, it holds
+// its token: the token cannot expire, and a new track of the same person cannot take it back.
+func (t *Tracker) endSilentTracks(now time.Time) {
+	limit := t.cfg.TrackSilenceTimeout
+	for _, id := range sortedKeys(t.active) {
+		tr := t.active[id]
+		if now.Sub(tr.lastUpdate) <= limit {
+			continue
+		}
+		silent := fmt.Sprintf("no update from Frigate for %s", limit)
+		// The track is in t.ended once endTrack or finishTrack returns. tr is the same pointer, so the
+		// outcome and end time set below still reach shadow state and the hand-off rules later in Tick.
+		if tr.confirmed {
+			t.endTrack(now, tr, FrigateObject{CurrentZones: tr.current, EnteredZones: tr.zones})
+			tr.outcome = silent + "; " + tr.outcome // e.g. "...; token stays in kitchen", "...; dropped: never confirmed"
+		} else {
+			tr.outcome = "dropped: " + silent
+			t.finishTrack(now, tr)
+		}
+		// Frigate would have ended the track soon after its last message. The hand-off window counts from
+		// there, so the token of a person lost long ago is not handed to whoever appears next.
+		tr.end = tr.lastUpdate
+	}
+}
+
+// Tick applies the time-based rules: camera health, silent tracks, hand-off timeouts, expiry and nobody
+// home.
 func (t *Tracker) Tick(now time.Time) {
 	for _, c := range t.cameras {
 		if c.online && now.Sub(c.lastHeartbeat) > t.cfg.CameraHeartbeatTimeout {
@@ -386,6 +414,7 @@ func (t *Tracker) Tick(now time.Time) {
 		}
 	}
 	t.updateUnknownAreas(now)
+	t.endSilentTracks(now)
 
 	for _, area := range sortedKeys(t.exitEdges) {
 		t.matchExits(now, area)
@@ -407,7 +436,9 @@ func (t *Tracker) Tick(now time.Time) {
 		// A camera that sees the target area would have picked up a person who walked in. Nobody did,
 		// so the person stepped into the doorway and back, or Frigate lost someone standing near it.
 		if t.covered(target) {
-			tr.outcome = "no camera picked the person up; token stays in " + tok.area
+			// Keep what comes before the wait, such as a silent track's reason.
+			tr.outcome = strings.TrimSuffix(tr.outcome, "waiting for a hand-off to "+target) +
+				"no camera picked the person up; token stays in " + tok.area
 			continue
 		}
 		t.moveToken(now, tok, target, tr.camera, "no camera picked the person up; moved to "+target)

@@ -44,6 +44,8 @@ Measured on a live install with Frigate at 5 fps. Higher frame rates shrink some
 | Zone a person is in | Bottom-center of the box (the feet) | Draw zones on the floor |
 | `current_zones` on `new` | Empty; filled 0.2–0.5 s later | Wait for the first `update` |
 | Event `end` after the person stops moving | 1.5–3 s | Ending is not leaving |
+| Event `end` | Sometimes never sent: the track just goes silent | End silent tracks: see [When a track ends](#when-a-track-ends) |
+| `update` for a person standing still | At least every 10 s or so | A silent track is not a still person |
 | Camera-to-camera hand-off gap | 0.4 s or less | Hand-off window can be short |
 | Gap before a returning person is re-tracked | 1.6–3.6 s | Often after the doorway: see rule 4 |
 | Direction of travel | Not given; `velocity_angle` is always 0 | Use `entered_zones` order |
@@ -165,6 +167,15 @@ flowchart TD
 "Token stays" covers a person who sits behind a counter, or who stops moving long enough for Frigate to lose
 them, so it is the default.
 
+**Silent tracks.** Frigate sometimes stops sending messages for a track and never sends `end`. An active
+track holds its token, so the token could not expire, and a new track of the same person could not take it
+back. When a track sends nothing for `track_silence_timeout` (default 60 s), the plugin ends it as if
+Frigate had sent `end` with the track's last zones. The rules above apply, and the outcome starts with
+"no update from Frigate for 1m0s". The track counts as ended at its last message, so the
+hand-off window is already over: a pending move to a seen area happens at once. Frigate keeps sending
+updates for a person who stands still, so their track does not end. The timeout must be longer than
+`handoff_window`, because the straight-back rule looks for tracks that have gone quiet within that window.
+
 ### How a token goes away
 
 Without a rule, a token left behind by a missed exit would keep a room lit forever. Areas may have an **idle
@@ -276,6 +287,8 @@ While the robot is docked its area is empty, so none of this applies near the do
 
 When a camera's heartbeat stops for 30 s, its areas are marked **unknown**. Tokens in them freeze and do not
 expire. Lighting then sees the last state, not a sudden "empty room". Shadow state reports which camera is down.
+A camera that is down sends no track messages either, so its open tracks end as silent tracks. Their tokens
+stay in the frozen areas.
 
 When the heartbeat returns, affected areas leave the unknown state. Frozen tokens resume expiry from where they
 paused — their last-seen clock does not reset. A token that was 50 minutes through a 1-hour idle limit when the
@@ -371,6 +384,7 @@ room_presence:
   mode: log_only              # log_only | active
   handoff_window: 5s
   camera_heartbeat_timeout: 30s
+  track_silence_timeout: 60s  # optional
   nobody_home_delay: 5m
   exit_window: 30s
   arrival_window: 60s         # optional
@@ -396,6 +410,8 @@ room_presence:
 - `exit_sensors` are binary sensors outside an unseen area's outside door. See "Leaving the house".
 - `approach_sensors` see the way up to that door, farther out, and `entry_sensors` are on the door. See
   "Coming in".
+- `track_silence_timeout` (default 60s) is how long a track may send nothing before the plugin ends it. It
+  must be longer than `handoff_window`. See "Silent tracks" under [When a track ends](#when-a-track-ends).
 - An area with no `idle_limit` never expires. Nobody-home and the people count still remove its tokens.
 - `cameras` (optional) maps a camera to the areas it sees. The plugin also learns this from the zones each
   camera reports. It decides which areas freeze when a camera stops.
