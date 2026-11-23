@@ -677,7 +677,7 @@ func (m *Manager) evaluateWaterLeaks() {
 
 	// Send notifications for new leaks
 	for _, sensor := range toNotify {
-		m.sendWaterLeakNotification(sensor, false)
+		m.sendWaterLeakNotification(sensor, false, 0)
 	}
 }
 
@@ -714,7 +714,7 @@ func (m *Manager) repeatWaterLeak(entityID string, gen uint64) {
 	}
 	m.mu.Unlock()
 
-	m.sendWaterLeakNotification(sensor, true)
+	m.sendWaterLeakNotification(sensor, true, gen)
 }
 
 var (
@@ -740,7 +740,11 @@ func waterLeakLocation(sensor *WaterLeakSensor) string {
 
 // sendWaterLeakNotification sends a notification for a water leak. A repeat says the leak is still there.
 // Either way, a sensor that is still wet gets its next repeat timer, measured from this alert.
-func (m *Manager) sendWaterLeakNotification(sensor *WaterLeakSensor, repeat bool) {
+// expectedGen is the repeatGen value that was checked before this call; pass 0 for initial alerts.
+// If expectedGen != 0 and the sensor's repeatGen has advanced (sensor dried and re-wetted between the
+// caller's generation check and this lock acquisition), the call is a no-op — the stale repeat must not
+// overwrite the fresh detection's NotificationSent flag or arm a timer at the wrong cadence origin.
+func (m *Manager) sendWaterLeakNotification(sensor *WaterLeakSensor, repeat bool, expectedGen uint64) {
 	location := waterLeakLocation(sensor)
 	message := fmt.Sprintf("Water leak at the %s.", location)
 	body := fmt.Sprintf("Leak at the %s", location)
@@ -757,8 +761,14 @@ func (m *Manager) sendWaterLeakNotification(sensor *WaterLeakSensor, repeat bool
 	// Record notification in shadow state
 	m.shadowTracker.RecordWaterLeakNotification(sensor.EntityID, sensor.FriendlyName, message)
 
-	// Mark as notified
+	// Mark as notified — but only if our generation is still current (guards the TOCTOU window between
+	// repeatWaterLeak's entry check and here: if the sensor dried and re-wetted in that gap, the new
+	// generation owns the state and this stale callback must not clobber it).
 	m.mu.Lock()
+	if expectedGen != 0 && sensor.repeatGen != expectedGen {
+		m.mu.Unlock()
+		return
+	}
 	sensor.NotificationSent = true
 	m.armLeakRepeatLocked(sensor)
 	m.mu.Unlock()
