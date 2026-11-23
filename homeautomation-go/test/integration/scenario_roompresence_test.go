@@ -490,6 +490,8 @@ func TestScenario_RoomPresence_DoorSensorFindsPersonInBedroom(t *testing.T) {
 	server.SetState("binary_sensor.example_bedroom_door", "off", nil)
 
 	t.Log("THEN: the bedroom is empty")
+	// Give the door-closed event time to be handled. require.Eventually cannot do this: the bedroom is
+	// already empty before the event arrives, so it would pass without the handler having run.
 	time.Sleep(200 * time.Millisecond)
 	assert.False(t, mgr.Occupied("bedroom"), "the person who left closed the door")
 	assert.True(t, mgr.Occupied("hall"))
