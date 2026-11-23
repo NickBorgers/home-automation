@@ -171,7 +171,7 @@ them, so it is the default.
 track holds its token, so the token could not expire, and a new track of the same person could not take it
 back. When a track sends nothing for `track_silence_timeout` (default 60 s), the plugin ends it as if
 Frigate had sent `end` with the track's last zones. The rules above apply, and the outcome starts with
-"ended: no update from Frigate for 1m0s". The track counts as ended at its last message, so the
+"no update from Frigate for 1m0s". The track counts as ended at its last message, so the
 hand-off window is already over: a pending move to a seen area happens at once. Frigate keeps sending
 updates for a person who stands still, so their track does not end. The timeout must be longer than
 `handoff_window`, because the straight-back rule looks for tracks that have gone quiet within that window.

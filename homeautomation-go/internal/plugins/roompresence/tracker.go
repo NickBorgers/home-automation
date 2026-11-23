@@ -3,6 +3,7 @@ package roompresence
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"homeautomation/internal/shadowstate"
@@ -393,7 +394,7 @@ func (t *Tracker) endSilentTracks(now time.Time) {
 		// outcome and end time set below still reach shadow state and the hand-off rules later in Tick.
 		if tr.started {
 			t.endTrack(now, tr, FrigateObject{CurrentZones: tr.current, EnteredZones: tr.zones})
-			tr.outcome = "ended: " + silent + "; " + tr.outcome
+			tr.outcome = silent + "; " + tr.outcome // e.g. "...; token stays in kitchen", "...; dropped: never confirmed"
 		} else {
 			tr.outcome = "dropped: " + silent
 			t.finishTrack(now, tr)
@@ -435,7 +436,9 @@ func (t *Tracker) Tick(now time.Time) {
 		// A camera that sees the target area would have picked up a person who walked in. Nobody did,
 		// so the person stepped into the doorway and back, or Frigate lost someone standing near it.
 		if t.covered(target) {
-			tr.outcome = "no camera picked the person up; token stays in " + tok.area
+			// Keep what comes before the wait, such as a silent track's reason.
+			tr.outcome = strings.TrimSuffix(tr.outcome, "waiting for a hand-off to "+target) +
+				"no camera picked the person up; token stays in " + tok.area
 			continue
 		}
 		t.moveToken(now, tok, target, tr.camera, "no camera picked the person up; moved to "+target)

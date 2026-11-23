@@ -606,7 +606,7 @@ func TestSilentTrack_EndedAfterTimeout(t *testing.T) {
 	s.tick(2 + 61)
 	assert.Empty(t, s.tr.active)
 	last := s.tr.ended[len(s.tr.ended)-1]
-	assert.Equal(t, "ended: no update from Frigate for 1m0s; token stays in kitchen", last.outcome)
+	assert.Equal(t, "no update from Frigate for 1m0s; token stays in kitchen", last.outcome)
 	assert.Equal(t, at(2), last.end, "the track counts as ended at its last message")
 	assert.False(t, s.tr.held("t1"), "the token is free again")
 	s.tokens(1)
@@ -629,6 +629,34 @@ func TestSilentTrack_EndRulesUseLastZone(t *testing.T) {
 	s2.tick(62)
 	s2.occupied("hall")
 	s2.empty("kitchen")
+}
+
+// When an online camera sees the target area, the token stays. The outcome still says the track went silent.
+func TestSilentTrack_EndAtDoorwayToCoveredAreaKeepsToken(t *testing.T) {
+	s := newScene(t)
+	s.tr.addCameraArea("cam_hall", "hall")
+	s.seed(0, "kitchen")
+	s.event(1, "update", "a", "cam_kitchen", []string{"kitchen", "kitchen_to_hall"}, "kitchen_to_hall")
+	for sec := 0.0; sec <= 62; sec++ {
+		s.tr.Heartbeat(at(sec), "cam_hall")
+		s.tick(sec)
+	}
+	s.occupied("kitchen")
+	s.empty("hall")
+	assert.Equal(t, "no update from Frigate for 1m0s; no camera picked the person up; token stays in kitchen",
+		s.tr.ended[len(s.tr.ended)-1].outcome)
+}
+
+// A track that entered a zone but was never confirmed is still reported as dropped.
+func TestSilentTrack_UnconfirmedIsDropped(t *testing.T) {
+	s := newScene(t)
+	s.tr.SetPeople(at(0), 1, false, true)
+	s.seed(0, "hall")
+	s.event(1, "update", "ghost", "cam_kitchen", []string{"kitchen"}, "kitchen")
+	s.tick(62)
+	assert.Empty(t, s.tr.active)
+	assert.Equal(t, "no update from Frigate for 1m0s; dropped: never confirmed", s.tr.ended[len(s.tr.ended)-1].outcome)
+	s.empty("kitchen")
 }
 
 // A track that never entered a known zone is dropped, as an end from Frigate would drop it.
