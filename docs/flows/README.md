@@ -23,6 +23,7 @@ These documents provide visual understanding of the current Go implementation th
 | [LIGHTING_CONTROL.md](./LIGHTING_CONTROL.md) | lighting | Scene automation based on day phase and sleep |
 | [LUX_LIGHTING.md](./LUX_LIGHTING.md) | lighting | Lux-target ceiling cans and manual hold (Living active) |
 | [TV_BRIGHTNESS.md](./TV_BRIGHTNESS.md) | tv | TV picture and Hue Sync box brightness follow the Living target lux |
+| [TV_AUDIO_OUTPUT.md](./TV_AUDIO_OUTPUT.md) | tv | Bravia audio-system selection at the start of TV playback |
 | [SLEEP_HYGIENE.md](./SLEEP_HYGIENE.md) | sleephygiene | Wake-up sequences, bedtime reminders |
 | [SECURITY.md](./SECURITY.md) | security | Lockdown, garage, doorbell notifications |
 | [ENERGY_MANAGEMENT.md](./ENERGY_MANAGEMENT.md) | energy | Battery/solar monitoring, indicator lights |

@@ -56,6 +56,12 @@ const (
 	// Entity ID for the TV remote (actual TV power state)
 	TVRemoteEntity = "media_player.sony_xr_65a80k"
 
+	// braviaRemoteEntity accepts Sony IRCC commands for the TV.
+	braviaRemoteEntity     = "remote.sony_xr_65a80k"
+	audioSystemCommand     = "AudioOutput_AudioSystem"
+	audioSystemRetryDelay  = 5 * time.Second
+	audioSystemCallTimeout = 10 * time.Second
+
 	// LightSyncOffDebounce is how long to wait before turning off light sync
 	// after Apple TV reports "paused". Prevents flapping due to Apple TV
 	// integration briefly reporting "paused" state during active playback.
@@ -105,8 +111,11 @@ type Manager struct {
 	bright brightnessControl
 
 	// For testing: injectable time and sleep functions
-	timeNow   func() time.Time
-	sleepFunc func(time.Duration)
+	timeNow               func() time.Time
+	sleepFunc             func(time.Duration)
+	audioSystemRetryDelay time.Duration
+	audioSystemMu         sync.Mutex
+	audioSystemSelected   bool
 }
 
 // NewManager creates a new TV manager
@@ -122,9 +131,10 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 		shadowTracker: shadowTracker,
 		subHelper:     shadowstate.NewSubscriptionHelper(haClient, stateManager, registry, shadowTracker, "tv", logger.Named("tv")),
 		// Initialize time functions with defaults
-		timeNow:              time.Now,
-		sleepFunc:            time.Sleep,
-		lightSyncOffDebounce: LightSyncOffDebounce,
+		timeNow:               time.Now,
+		sleepFunc:             time.Sleep,
+		audioSystemRetryDelay: audioSystemRetryDelay,
+		lightSyncOffDebounce:  LightSyncOffDebounce,
 	}
 	m.bright.powerOnDelay = BrightnessPowerOnDelay
 	return m
@@ -309,6 +319,9 @@ func (m *Manager) handleTVRemoteChange(entityID string, oldState, newState *ha.S
 		m.brightnessOnPowerOn()
 	} else if !isOn && wasOn {
 		m.brightnessOnPowerOff(newState.State)
+		m.audioSystemMu.Lock()
+		m.audioSystemSelected = false
+		m.audioSystemMu.Unlock()
 	}
 
 	m.logger.Debug("TV media_player state changed",
@@ -333,6 +346,34 @@ func (m *Manager) handleTVRemoteChange(entityID string, oldState, newState *ha.S
 		}
 		m.shadowTracker.UpdateTVPlaying(false)
 		m.controlSyncBoxLightSync(false)
+	}
+}
+
+// selectAudioSystem asks the Bravia to use its HDMI audio system. The second
+// attempt covers TVs that are not ready immediately after power-on. Failure is
+// observable but does not alter TV power or playback state.
+func (m *Manager) selectAudioSystem() {
+	if m.readOnly {
+		m.logger.Debug("Skipping TV audio system selection in read-only mode")
+		return
+	}
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		if attempt > 1 {
+			m.sleepFunc(m.audioSystemRetryDelay)
+		}
+
+		ctx, cancel := context.WithTimeout(m.ctx, audioSystemCallTimeout)
+		err := m.haClient.CallService(ctx, "remote", "send_command", map[string]interface{}{
+			"entity_id": braviaRemoteEntity,
+			"command":   audioSystemCommand,
+		})
+		cancel()
+		if err != nil {
+			m.logger.Warn("Failed to select TV audio system", zap.Int("attempt", attempt), zap.Error(err))
+			continue
+		}
+		m.logger.Info("Selected TV audio system", zap.Int("attempt", attempt))
 	}
 }
 
@@ -588,6 +629,11 @@ func (m *Manager) calculateTVPlaying(hdmiInput string) {
 		zap.Bool("is_tv_playing", isTVPlaying))
 
 	// Update isTVPlaying state variable
+	wasTVPlaying, err := m.stateManager.GetBool("isTVPlaying")
+	if err != nil {
+		m.logger.Error("Failed to get current isTVPlaying", zap.Error(err))
+		return
+	}
 	if err := m.stateManager.SetBool("isTVPlaying", isTVPlaying); err != nil {
 		if errors.Is(err, state.ErrReadOnlyMode) {
 			m.logger.Debug("Skipping isTVPlaying update in read-only mode",
@@ -599,6 +645,17 @@ func (m *Manager) calculateTVPlaying(hdmiInput string) {
 
 	// Update shadow state
 	m.shadowTracker.UpdateTVPlaying(isTVPlaying)
+
+	// The first playback transition in a TV-use session selects the soundbar.
+	// The session latch prevents pause/play state churn from replaying commands.
+	if isTVPlaying && !wasTVPlaying {
+		m.audioSystemMu.Lock()
+		if !m.audioSystemSelected {
+			m.audioSystemSelected = true
+			go m.selectAudioSystem()
+		}
+		m.audioSystemMu.Unlock()
+	}
 
 	// Control sync box light sync based on TV playing state
 	m.controlSyncBoxLightSync(isTVPlaying)
