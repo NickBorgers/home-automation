@@ -50,7 +50,12 @@ type targetState struct {
 	// lastReloadFailed reflects the outcome of the most recent attempt.
 	lastReloadFailed bool
 
-	powerMismatchCount int
+	// firstPowerMismatchAt is when direct Bravia checks first disagreed with HA
+	// while HA reports the panel on. Zero when no mismatch is in progress.
+	// Time-based (not a counter) so concurrent evaluations are idempotent: two
+	// goroutines both setting "if zero" write the same instant, and the subsequent
+	// duration check is then identical for both.
+	firstPowerMismatchAt time.Time
 }
 
 // Manager is the integrationwatchdog plugin.
@@ -86,6 +91,8 @@ type Manager struct {
 
 // SetBraviaClient supplies the independent power-status client. If unset,
 // Bravia power checks remain inconclusive and never trigger recovery.
+// Must be called before Start(); calling it on a running manager races with
+// evaluateTarget reads.
 func (m *Manager) SetBraviaClient(client *bravia.Client) {
 	m.braviaClient = client
 }
@@ -346,21 +353,24 @@ func (m *Manager) evaluateTarget(name string) {
 	if powerRule != nil {
 		switch {
 		case ts.entityStates[powerRule.Entity] != "on" || m.braviaClient == nil:
-			ts.powerMismatchCount = 0
+			ts.firstPowerMismatchAt = time.Time{}
 		case directPowerErr != nil:
 			// Timeout, authentication, offline, and malformed replies are all
 			// inconclusive. They must not count toward recovery.
-			ts.powerMismatchCount = 0
+			ts.firstPowerMismatchAt = time.Time{}
 			m.logger.Warn("Direct Bravia power check was inconclusive",
 				zap.String("target", name), zap.Error(directPowerErr))
 		case directPower == bravia.PowerStatusStandby:
-			ts.powerMismatchCount++
-			if !stale && ts.powerMismatchCount >= powerRule.ConsecutiveMismatches {
+			if ts.firstPowerMismatchAt.IsZero() {
+				ts.firstPowerMismatchAt = now
+			}
+			threshold := time.Duration(powerRule.ConsecutiveMismatches) * m.cfg.CheckInterval()
+			if !stale && now.Sub(ts.firstPowerMismatchAt) >= threshold {
 				stale = true
 				reason = "bravia_power:ha=on,direct=standby"
 			}
 		default:
-			ts.powerMismatchCount = 0
+			ts.firstPowerMismatchAt = time.Time{}
 		}
 	}
 

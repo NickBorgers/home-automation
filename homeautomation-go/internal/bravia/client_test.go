@@ -126,7 +126,7 @@ func TestGetPowerStatus(t *testing.T) {
 				var req map[string]interface{}
 				require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
 				method, _ = req["method"].(string)
-				assert.Empty(t, req["params"])
+				assert.Equal(t, []interface{}{}, req["params"])
 				_, _ = io.WriteString(w, tt.reply)
 			}))
 			defer srv.Close()
