@@ -245,7 +245,7 @@ func TestLuxRooms_PantryManualTurnOnDuringFadeToOffWins(t *testing.T) {
 	m.handleCansChange(pantry, report)
 	assert.True(t, m.luxHeld(pantry))
 	m.luxMu.Lock()
-	assert.Equal(t, "cans turned on by hand", m.luxRoom("Pantry").heldReason)
+	assert.Equal(t, "cans turned on outside the lighting command", m.luxRoom("Pantry").heldReason)
 	m.luxMu.Unlock()
 	calls = env.MockHA.GetServiceCalls()
 	require.Equal(t, "turn_on", calls[len(calls)-1].Service)
