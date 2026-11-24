@@ -197,6 +197,14 @@ func TestScenario_UserStory_ZeroDuringDisplayTransitionDoesNotCreateAManualHold(
 	require.Eventually(t, func() bool {
 		return fake.brightness() == 38
 	}, stateWaitTimeout, statePollInterval, "normal calculated brightness should resume")
+	server.SetState(tv.TVRemoteEntity, "standby", nil)
+	client.WaitForHandlers()
+	server.SetState(tv.TVRemoteEntity, "on", nil)
+	client.WaitForHandlers()
+	require.Eventually(t, func() bool {
+		brightness := mgr.GetShadowState().Outputs.Brightness
+		return brightness != nil && brightness.PowerSessionVerified
+	}, stateWaitTimeout, statePollInterval, "the observed power cycle should verify the new session")
 
 	t.Log("WHEN: T+3 a real remote change is confirmed while the display remains on")
 	fake.setCurrent(40)
@@ -217,4 +225,69 @@ func TestScenario_UserStory_ZeroDuringDisplayTransitionDoesNotCreateAManualHold(
 	require.False(t, brightness.TV.Held)
 	require.Empty(t, brightness.TV.HeldReason)
 	require.False(t, brightness.SyncBox.Held)
+}
+
+// TestScenario_UserStory_StaleOnZeroHasUnknownCause covers issue #1488.
+//
+// Story: "When Home Assistant has missed the TV's power cycle, an unexplained zero reading must not
+// be attributed to me or held indefinitely."
+//
+// INVARIANTS:
+//   - A writable same-value probe proves only that the display is writable, not who caused a mismatch.
+//   - A stale initial on state does not verify that remembered brightness belongs to the current panel session.
+//   - A real setting change after an observed off-to-on edge is held for that verified session.
+func TestScenario_UserStory_StaleOnZeroHasUnknownCause(t *testing.T) {
+	server, client, stateManager, cleanup := setupTest(t)
+	defer cleanup()
+
+	fake := &displayOffBravia{displayOn: true, current: 25}
+	tvServer := httptest.NewServer(fake)
+	defer tvServer.Close()
+
+	t.Log("GIVEN: Home Assistant starts with a stale on state and the controller sets brightness 50")
+	server.SetState(tv.TVRemoteEntity, "on", nil)
+	server.SetState(tv.SyncBoxSoftwarePowerEntity, "off", nil)
+	mgr := tv.NewManager(context.Background(), client, stateManager, zap.NewNop(), false, nil)
+	mgr.SetPictureClient(bravia.NewClient(tvServer.URL, "test-psk"))
+	mgr.SetBrightnessPowerOnDelay(0)
+	require.NoError(t, mgr.Start())
+	defer mgr.Stop()
+	require.NoError(t, stateManager.SetNumber("tvRoomTargetLux", 150))
+	require.NoError(t, stateManager.SetNumber("tvRoomBrightnessPct", 100))
+	require.Eventually(t, func() bool { return fake.brightness() == 50 }, stateWaitTimeout, statePollInterval)
+
+	t.Log("WHEN: T+1 Bravia unexpectedly reports zero but accepts the same-value probe")
+	fake.setCurrent(0)
+	require.NoError(t, stateManager.SetNumber("tvRoomTargetLux", 149))
+	require.NoError(t, stateManager.SetNumber("tvRoomBrightnessPct", 99))
+	require.Eventually(t, func() bool {
+		brightness := mgr.GetShadowState().Outputs.Brightness
+		return brightness != nil && brightness.TV.HoldEvidence == "brightness mismatch; cause unknown; power session unverified"
+	}, stateWaitTimeout, statePollInterval)
+
+	t.Log("THEN: the unknown mismatch is corrected, not labeled or held as a human change")
+	brightness := mgr.GetShadowState().Outputs.Brightness
+	require.False(t, brightness.PowerSessionVerified)
+	require.False(t, brightness.TV.Held)
+	require.Equal(t, "set 50", brightness.TV.Decision)
+	require.Equal(t, 50, fake.brightness())
+
+	t.Log("WHEN: T+2 an observed standby-to-on edge starts a verified session, then the setting changes")
+	server.SetState(tv.TVRemoteEntity, "standby", nil)
+	client.WaitForHandlers()
+	server.SetState(tv.TVRemoteEntity, "on", nil)
+	client.WaitForHandlers()
+	require.Eventually(t, func() bool {
+		brightness := mgr.GetShadowState().Outputs.Brightness
+		return brightness != nil && brightness.PowerSessionVerified
+	}, stateWaitTimeout, statePollInterval)
+	fake.setCurrent(40)
+	require.NoError(t, stateManager.SetNumber("tvRoomTargetLux", 148))
+	require.NoError(t, stateManager.SetNumber("tvRoomBrightnessPct", 98))
+
+	t.Log("THEN: a mismatch in the verified on-session is still held")
+	require.Eventually(t, func() bool {
+		brightness := mgr.GetShadowState().Outputs.Brightness
+		return brightness != nil && brightness.TV.Held
+	}, stateWaitTimeout, statePollInterval)
 }

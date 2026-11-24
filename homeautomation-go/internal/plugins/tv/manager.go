@@ -84,9 +84,10 @@ type Manager struct {
 	recoveryInProgress bool
 
 	// TV remote (panel power) state — tracked locally to avoid HA GetState races
-	tvRemoteMu       sync.RWMutex
-	tvRemoteOn       bool   // last-known boolean state of media_player.sony_xr_65a80k
-	tvRemoteRawState string // last-known raw state ("on"/"off"/"standby"/"unavailable"/...)
+	tvRemoteMu        sync.RWMutex
+	tvRemoteOn        bool   // last-known boolean state of media_player.sony_xr_65a80k
+	tvRemoteRawState  string // last-known raw state ("on"/"off"/"standby"/"unavailable"/...)
+	tvRemoteStateSeen bool   // distinguishes an initial state snapshot from an observed power edge
 
 	// Home Assistant's last_changed times, used to tell a stale "off" panel from a real one.
 	// A panel that went off BEFORE the Apple TV began playing is not credible: the Bravia
@@ -300,13 +301,15 @@ func (m *Manager) handleTVRemoteChange(entityID string, oldState, newState *ha.S
 	isOn := newState.State != "off" && newState.State != "standby" && newState.State != "unavailable" && newState.State != "unknown"
 	m.tvRemoteMu.Lock()
 	wasOn := m.tvRemoteOn
+	wasSeen := m.tvRemoteStateSeen
 	m.tvRemoteOn = isOn
 	m.tvRemoteRawState = newState.State
+	m.tvRemoteStateSeen = true
 	m.tvRemoteChangedAt = m.stateChangedAt(newState)
 	m.tvRemoteMu.Unlock()
 
 	if isOn && !wasOn {
-		m.brightnessOnPowerOn()
+		m.brightnessOnPowerOn(wasSeen)
 	} else if !isOn && wasOn {
 		m.brightnessOnPowerOff(newState.State)
 	}

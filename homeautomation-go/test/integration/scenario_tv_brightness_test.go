@@ -219,7 +219,7 @@ func TestScenario_UserStory_TVAndHueBacklightFollowRoomTargetLux(t *testing.T) {
 	require.NoError(t, stateManager.SetBool("isAnyoneHome", true))
 	server.SetState("sensor.outdoor_lux", "0", nil)
 	server.SetState("light.living_cans", "off", nil)
-	server.SetState(tv.TVRemoteEntity, "on", nil)
+	server.SetState(tv.TVRemoteEntity, "standby", nil)
 	server.SetState(tv.SyncBoxLightSyncEntity, "on", nil)
 	server.SetState(tv.SyncBoxBrightnessEntity, "46", map[string]interface{}{"min": 1.0, "max": 100.0})
 
@@ -229,6 +229,10 @@ func TestScenario_UserStory_TVAndHueBacklightFollowRoomTargetLux(t *testing.T) {
 	tvMgr.SetBrightnessPowerOnDelay(0)
 	require.NoError(t, tvMgr.Start())
 	defer tvMgr.Stop()
+	server.SetState(tv.TVRemoteEntity, "off", nil)
+	client.WaitForHandlers()
+	server.SetState(tv.TVRemoteEntity, "on", nil)
+	client.WaitForHandlers()
 
 	lightMgr := lighting.NewManager(context.Background(), client, stateManager, config, testlogger.New(), false, nil)
 	lightMgr.SetClock(mockClock)
