@@ -761,7 +761,8 @@ func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 		return
 	}
 	if cmd.on && newState.State == "on" {
-		// A brightness or color difference: confirm it with a fresh read before holding.
+		// Automation reports are gated above (ParentID check); only user-attributed and
+		// unknown-origin reports reach this scheduling path.
 		check := &luxHoldCheck{reason: reason, last: newState}
 		if !luxReportFresh(cmd, now) {
 			check.stale = newState
