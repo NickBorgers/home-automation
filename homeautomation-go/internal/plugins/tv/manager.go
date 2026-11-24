@@ -116,6 +116,7 @@ type Manager struct {
 	audioSystemRetryDelay time.Duration
 	audioSystemMu         sync.Mutex
 	audioSystemSelected   bool
+	audioSystemGeneration uint64 // incremented on session reset to invalidate in-flight goroutines
 }
 
 // NewManager creates a new TV manager
@@ -321,6 +322,7 @@ func (m *Manager) handleTVRemoteChange(entityID string, oldState, newState *ha.S
 		m.brightnessOnPowerOff(newState.State)
 		m.audioSystemMu.Lock()
 		m.audioSystemSelected = false
+		m.audioSystemGeneration++ // invalidate any goroutine sleeping between its two attempts
 		m.audioSystemMu.Unlock()
 	}
 
@@ -352,7 +354,9 @@ func (m *Manager) handleTVRemoteChange(entityID string, oldState, newState *ha.S
 // selectAudioSystem asks the Bravia to use its HDMI audio system. The second
 // attempt covers TVs that are not ready immediately after power-on. Failure is
 // observable but does not alter TV power or playback state.
-func (m *Manager) selectAudioSystem() {
+// generation must match m.audioSystemGeneration after the inter-attempt sleep;
+// if the TV turned off in the meantime, the generation advances and this goroutine exits.
+func (m *Manager) selectAudioSystem(generation uint64) {
 	if m.readOnly {
 		m.logger.Debug("Skipping TV audio system selection in read-only mode")
 		return
@@ -361,6 +365,13 @@ func (m *Manager) selectAudioSystem() {
 	for attempt := 1; attempt <= 2; attempt++ {
 		if attempt > 1 {
 			m.sleepFunc(m.audioSystemRetryDelay)
+			m.audioSystemMu.Lock()
+			superseded := m.audioSystemGeneration != generation
+			m.audioSystemMu.Unlock()
+			if superseded {
+				m.logger.Debug("Audio system selection superseded by session reset, aborting")
+				return
+			}
 		}
 
 		ctx, cancel := context.WithTimeout(m.ctx, audioSystemCallTimeout)
@@ -631,8 +642,8 @@ func (m *Manager) calculateTVPlaying(hdmiInput string) {
 	// Update isTVPlaying state variable
 	wasTVPlaying, err := m.stateManager.GetBool("isTVPlaying")
 	if err != nil {
-		m.logger.Error("Failed to get current isTVPlaying", zap.Error(err))
-		return
+		m.logger.Error("Failed to get current isTVPlaying, defaulting to false", zap.Error(err))
+		wasTVPlaying = false
 	}
 	if err := m.stateManager.SetBool("isTVPlaying", isTVPlaying); err != nil {
 		if errors.Is(err, state.ErrReadOnlyMode) {
@@ -652,7 +663,8 @@ func (m *Manager) calculateTVPlaying(hdmiInput string) {
 		m.audioSystemMu.Lock()
 		if !m.audioSystemSelected {
 			m.audioSystemSelected = true
-			go m.selectAudioSystem()
+			gen := m.audioSystemGeneration
+			go m.selectAudioSystem(gen)
 		}
 		m.audioSystemMu.Unlock()
 	}

@@ -18,6 +18,7 @@ import (
 )
 
 func TestSelectAudioSystem_FailuresAreLoggedAndIgnored(t *testing.T) {
+	t.Parallel()
 	mockHA := ha.NewMockClient()
 	mockHA.SetServiceError("remote", "send_command", errors.New("remote unavailable"))
 	core, logs := observer.New(zap.WarnLevel)
@@ -27,7 +28,7 @@ func TestSelectAudioSystem_FailuresAreLoggedAndIgnored(t *testing.T) {
 
 	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
 	manager.audioSystemRetryDelay = 0
-	manager.selectAudioSystem()
+	manager.selectAudioSystem(manager.audioSystemGeneration)
 
 	isTVOn, err := stateMgr.GetBool("isTVon")
 	require.NoError(t, err)
