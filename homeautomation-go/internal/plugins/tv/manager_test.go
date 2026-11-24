@@ -2,6 +2,7 @@ package tv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -11,8 +12,29 @@ import (
 	"homeautomation/internal/ha"
 	"homeautomation/internal/state"
 
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
+
+func TestSelectAudioSystem_FailuresAreLoggedAndIgnored(t *testing.T) {
+	t.Parallel()
+	mockHA := ha.NewMockClient()
+	mockHA.SetServiceError("remote", "send_command", errors.New("remote unavailable"))
+	core, logs := observer.New(zap.WarnLevel)
+	logger := zap.New(core)
+	stateMgr := state.NewManager(mockHA, logger, false)
+	require.NoError(t, stateMgr.SetBool("isTVon", true))
+
+	manager := NewManager(context.Background(), mockHA, stateMgr, logger, false, nil)
+	manager.audioSystemRetryDelay = 0
+	manager.selectAudioSystem(manager.audioSystemGeneration)
+
+	isTVOn, err := stateMgr.GetBool("isTVon")
+	require.NoError(t, err)
+	require.True(t, isTVOn, "audio selection failure must not become a TV power failure")
+	require.Len(t, logs.FilterMessage("Failed to select TV audio system").All(), 2)
+}
 
 func TestTVManager_AppleTVStateChange(t *testing.T) {
 	t.Parallel()
