@@ -161,7 +161,7 @@ func TestScenario_UserStory_ZeroDuringDisplayTransitionDoesNotCreateAManualHold(
 	tvServer := httptest.NewServer(fake)
 	defer tvServer.Close()
 
-	t.Log("GIVEN: the on-session is established and the controller has set brightness 50")
+	t.Log("GIVEN: unverified on snapshot; controller has set brightness 50 (session verified later via observed power cycle)")
 	server.SetState(tv.TVRemoteEntity, "on", nil)
 	server.SetState(tv.SyncBoxSoftwarePowerEntity, "off", nil)
 	mgr := tv.NewManager(context.Background(), client, stateManager, zap.NewNop(), false, nil)
