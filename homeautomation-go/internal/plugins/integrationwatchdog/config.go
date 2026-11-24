@@ -63,6 +63,16 @@ type DetectionRule struct {
 	// (the Apple TV is "playing"), so neither the bad-state rule nor the timestamp
 	// rule fires.
 	Contradictions []Contradiction `yaml:"contradictions"`
+
+	// BraviaPower enables an independent panel-power check for a Bravia entity.
+	BraviaPower *BraviaPowerRule `yaml:"bravia_power,omitempty"`
+}
+
+// BraviaPowerRule detects an HA entity stuck at "on" while fresh direct reads
+// repeatedly report that the panel is in standby.
+type BraviaPowerRule struct {
+	Entity                string `yaml:"entity"`
+	ConsecutiveMismatches int    `yaml:"consecutive_mismatches"`
 }
 
 // Contradiction says: Entity in State is not credible while ContradictedBy holds.
@@ -139,7 +149,7 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("watch_targets[%s]: at least one entity is required", t.Name)
 		}
 		if len(t.Detection.BadStates) == 0 && t.Detection.StaleLastUpdatedMin == 0 &&
-			len(t.Detection.Contradictions) == 0 {
+			len(t.Detection.Contradictions) == 0 && t.Detection.BraviaPower == nil {
 			return fmt.Errorf("watch_targets[%s]: at least one detection rule must be enabled", t.Name)
 		}
 		if t.Detection.BadStateDurationMin > 0 && len(t.Detection.BadStates) == 0 {
@@ -148,6 +158,18 @@ func (c *Config) Validate() error {
 		for j, c := range t.Detection.Contradictions {
 			if err := c.validate(t.Entities); err != nil {
 				return fmt.Errorf("watch_targets[%s].contradictions[%d]: %w", t.Name, j, err)
+			}
+		}
+		if p := t.Detection.BraviaPower; p != nil {
+			if p.ConsecutiveMismatches < 2 {
+				return fmt.Errorf("watch_targets[%s].bravia_power: consecutive_mismatches must be at least 2", t.Name)
+			}
+			found := false
+			for _, entity := range t.Entities {
+				found = found || entity == p.Entity
+			}
+			if !found {
+				return fmt.Errorf("watch_targets[%s].bravia_power: entity %q must be listed in the target's entities", t.Name, p.Entity)
 			}
 		}
 		if t.Reload.CooldownMin <= 0 {

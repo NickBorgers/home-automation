@@ -2,8 +2,10 @@ package integrationwatchdog
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
+	"homeautomation/internal/bravia"
 	pkgha "homeautomation/pkg/ha"
 	"homeautomation/pkg/plugin"
 	"homeautomation/pkg/shadowstate"
@@ -39,6 +41,9 @@ func createPlugin(ctx *plugin.Context) (plugin.Plugin, error) {
 	}
 
 	mgr := NewManager(ctx.ShutdownCtx, haClient, stateManager, cfg, ctx.Logger, ctx.ReadOnly, ctx.Registry)
+	if ip, psk := os.Getenv("BRAVIA_IP"), os.Getenv("BRAVIA_PSK"); ip != "" && psk != "" {
+		mgr.SetBraviaClient(bravia.NewClient(ip, psk))
+	}
 	return &pluginAdapter{manager: mgr}, nil
 }
 

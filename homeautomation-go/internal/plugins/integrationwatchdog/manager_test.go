@@ -173,8 +173,13 @@ func TestWatchdog_RealConfigIsValid(t *testing.T) {
 		t.Fatalf("shipped config must load: %v", err)
 	}
 	for _, target := range cfg.WatchTargets {
-		if target.Name == "bravia_tv" && len(target.Detection.Contradictions) == 0 {
-			t.Errorf("bravia_tv must watch for a panel that is frozen on \"off\"")
+		if target.Name == "bravia_tv" {
+			if len(target.Detection.Contradictions) == 0 {
+				t.Errorf("bravia_tv must watch for a panel that is frozen on \"off\"")
+			}
+			if target.Detection.BraviaPower == nil {
+				t.Errorf("bravia_tv must directly check for a panel that is frozen on \"on\"")
+			}
 		}
 	}
 }

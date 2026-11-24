@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"homeautomation/internal/bravia"
 	"homeautomation/internal/ha"
 	"homeautomation/internal/shadowstate"
 	"homeautomation/internal/state"
@@ -48,6 +49,8 @@ type targetState struct {
 
 	// lastReloadFailed reflects the outcome of the most recent attempt.
 	lastReloadFailed bool
+
+	powerMismatchCount int
 }
 
 // Manager is the integrationwatchdog plugin.
@@ -61,6 +64,7 @@ type Manager struct {
 
 	shadowTracker *shadowstate.IntegrationWatchdogTracker
 	subHelper     *shadowstate.SubscriptionHelper
+	braviaClient  *bravia.Client
 
 	targets map[string]*targetState
 
@@ -78,6 +82,12 @@ type Manager struct {
 	// Injectable for tests.
 	timeNow   func() time.Time
 	sleepFunc func(time.Duration)
+}
+
+// SetBraviaClient supplies the independent power-status client. If unset,
+// Bravia power checks remain inconclusive and never trigger recovery.
+func (m *Manager) SetBraviaClient(client *bravia.Client) {
+	m.braviaClient = client
 }
 
 // NewManager constructs a new watchdog Manager. The registry argument is
@@ -253,6 +263,16 @@ func (m *Manager) evaluateTarget(name string) {
 
 	now := m.timeNow()
 
+	var directPower bravia.PowerStatus
+	var directPowerErr error
+	ts.mu.Lock()
+	powerRule := ts.cfg.Detection.BraviaPower
+	shouldCheckPower := powerRule != nil && ts.entityStates[powerRule.Entity] == "on" && m.braviaClient != nil
+	ts.mu.Unlock()
+	if shouldCheckPower {
+		directPower, directPowerErr = m.braviaClient.GetPowerStatus(m.ctx)
+	}
+
 	ts.mu.Lock()
 	cfg := ts.cfg
 	anyBad := false
@@ -320,6 +340,27 @@ func (m *Manager) evaluateTarget(name string) {
 			}
 		} else {
 			delete(ts.contradictionSince, i)
+		}
+	}
+
+	if powerRule != nil {
+		switch {
+		case ts.entityStates[powerRule.Entity] != "on" || m.braviaClient == nil:
+			ts.powerMismatchCount = 0
+		case directPowerErr != nil:
+			// Timeout, authentication, offline, and malformed replies are all
+			// inconclusive. They must not count toward recovery.
+			ts.powerMismatchCount = 0
+			m.logger.Warn("Direct Bravia power check was inconclusive",
+				zap.String("target", name), zap.Error(directPowerErr))
+		case directPower == bravia.PowerStatusStandby:
+			ts.powerMismatchCount++
+			if !stale && ts.powerMismatchCount >= powerRule.ConsecutiveMismatches {
+				stale = true
+				reason = "bravia_power:ha=on,direct=standby"
+			}
+		default:
+			ts.powerMismatchCount = 0
 		}
 	}
 

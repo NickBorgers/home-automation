@@ -49,7 +49,7 @@ A person can change the TV brightness with the remote, or the sync box brightnes
 
 ## Setup
 
-The TV brightness needs the TV's pre-shared key. Home Assistant's `braviatv` integration does not expose picture settings. So the app calls the TV's REST API directly: `POST http://<BRAVIA_IP>/sony/video` with `getPictureQualitySettings` and `setPictureQualitySettings`. These are the same calls as pybravia's `get_picture_setting` and `set_picture_setting`.
+The TV brightness needs the TV's pre-shared key. Home Assistant's `braviatv` integration does not expose picture settings. So the app calls the TV's REST API directly: `POST http://<BRAVIA_IP>/sony/video` with `getPictureQualitySettings` and `setPictureQualitySettings`. These are the same calls as pybravia's `get_picture_setting` and `set_picture_setting`. The integration watchdog can use the same credentials to call `getPowerStatus` on `/sony/system`; it requires consecutive fresh responses before acting.
 
 1. On the TV, set Settings > Network > Home Network Setup > IP Control > Pre-Shared Key.
 2. Give the TV a fixed LAN address.

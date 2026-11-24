@@ -550,6 +550,7 @@ scheduler also reads `house_map.yaml`.
 - **Bad-State Duration**: When all watched entities for a target have been in a bad state for `bad_state_duration_min` → reload
 - **Stale Timestamp**: When the newest `last_updated` across watched entities is older than `stale_last_updated_min` → reload
 - **Contradiction**: When a watched entity sits in a state that another entity disproves (the Bravia panel says `off` while the Apple TV is `playing`) for `duration_min` → reload. This catches an integration that froze on a plausible state and never reports `unavailable`
+- **Direct Bravia Power**: When Home Assistant reports `on` but multiple consecutive `getPowerStatus` calls report `standby` → reload. Timeouts, authentication failures, offline responses, and malformed responses are inconclusive and reset corroboration; Apple TV state is not a power signal
 - **Cooldown**: Block subsequent reloads for a target within `cooldown_min` after the last reload
 - **Daily Cap**: Block reloads once `daily_max` reloads have fired in the current calendar day
 

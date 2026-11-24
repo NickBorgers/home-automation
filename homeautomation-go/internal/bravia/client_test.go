@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -103,6 +104,57 @@ func TestSetBrightnessSendsStringValue(t *testing.T) {
 	settings := params["settings"].([]interface{})[0].(map[string]interface{})
 	assert.Equal(t, "brightness", settings["target"])
 	assert.Equal(t, "17", settings["value"])
+}
+
+func TestGetPowerStatus(t *testing.T) {
+	tests := []struct {
+		name    string
+		reply   string
+		want    PowerStatus
+		wantErr string
+	}{
+		{name: "active", reply: `{"result":[{"status":"active"}],"id":1}`, want: PowerStatusActive},
+		{name: "standby", reply: `{"result":[{"status":"standby"}],"id":1}`, want: PowerStatusStandby},
+		{name: "authentication failure", reply: `{"error":[403,"Forbidden"],"id":1}`, wantErr: "BRAVIA_PSK"},
+		{name: "unknown response", reply: `{"result":[{"status":"unknown"}],"id":1}`, wantErr: "unexpected power status"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var method string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "/sony/system", r.URL.Path)
+				var req map[string]interface{}
+				require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+				method, _ = req["method"].(string)
+				assert.Empty(t, req["params"])
+				_, _ = io.WriteString(w, tt.reply)
+			}))
+			defer srv.Close()
+
+			got, err := NewClient(srv.URL, testPSK).GetPowerStatus(context.Background())
+			assert.Equal(t, "getPowerStatus", method)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestGetPowerStatusTimeoutIsInconclusiveError(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		<-release
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, err := NewClient(srv.URL, testPSK).GetPowerStatus(ctx)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestHTTPErrorWithoutJSON(t *testing.T) {
