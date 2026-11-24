@@ -2,9 +2,15 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"homeautomation/internal/bravia"
 	"homeautomation/internal/plugins/integrationwatchdog"
 	"homeautomation/internal/testlogger"
 
@@ -34,6 +40,63 @@ func setupWatchdogScenarioTest(t *testing.T, cfg *integrationwatchdog.Config) (*
 		baseCleanup()
 	}
 	return server, mgr, cleanup
+}
+
+// TestScenario_Watchdog_BraviaStuckOnReloadsFromDirectPowerEvidence reproduces
+// the observed sequence where HA never emitted the physical off/on edge.
+//
+// Invariants:
+//   - Apple TV playback states never establish panel power by themselves.
+//   - A single direct response is not enough to reload; disagreement must persist.
+//   - A fresh direct "off" response can disprove HA's stuck "on" state.
+func TestScenario_Watchdog_BraviaStuckOnReloadsFromDirectPowerEvidence(t *testing.T) {
+	const panel = "media_player.scenario_panel"
+	const appleTV = "media_player.scenario_apple_tv"
+
+	var powerStatus atomic.Value
+	powerStatus.Store("active")
+	var powerChecks atomic.Int32
+	braviaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/sony/system", r.URL.Path)
+		var request struct {
+			Method string `json:"method"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+		require.Equal(t, "getPowerStatus", request.Method)
+		powerChecks.Add(1)
+		_, _ = w.Write([]byte(`{"result":[{"status":"` + powerStatus.Load().(string) + `"}],"id":1}`))
+	}))
+	defer braviaServer.Close()
+
+	cfg := makeContradictionCfg(panel, appleTV, 0)
+	cfg.CheckIntervalSec = 1
+	cfg.WatchTargets[0].Detection.BraviaPower = &integrationwatchdog.BraviaPowerRule{
+		Entity: panel, ConsecutiveMismatches: 2,
+	}
+	server, mgr, cleanup := setupWatchdogScenarioTest(t, cfg)
+	defer cleanup()
+	mgr.SetBraviaClient(bravia.NewClient(strings.TrimPrefix(braviaServer.URL, "http://"), "test-psk"))
+
+	t.Log("GIVEN: HA has continuously reported the panel on and direct power agrees")
+	server.SetState(panel, "on", nil)
+	server.SetState(appleTV, "off", nil)
+	require.NoError(t, mgr.Start())
+	require.Eventually(t, func() bool { return powerChecks.Load() >= 1 }, time.Second, 10*time.Millisecond)
+
+	t.Log("WHEN: the panel is physically powered off without an HA state edge")
+	powerStatus.Store("standby")
+	server.SetState(appleTV, "paused", nil)
+	require.Eventually(t, func() bool { return powerChecks.Load() >= 2 }, time.Second, 10*time.Millisecond)
+
+	t.Log("THEN: one mismatching response does not reload, and a fresh agreement clears it")
+	powerStatus.Store("active")
+	require.Eventually(t, func() bool { return powerChecks.Load() >= 3 }, 2*time.Second, 10*time.Millisecond)
+	require.Empty(t, server.GetConfigEntryReloads())
+
+	t.Log("WHEN: two fresh direct checks corroborate that the panel remains off")
+	powerStatus.Store("standby")
+	require.Eventually(t, func() bool { return len(server.GetConfigEntryReloads()) == 1 },
+		4*time.Second, 100*time.Millisecond)
 }
 
 // makeImmediateCfg builds a config with a single target watching `entity` that

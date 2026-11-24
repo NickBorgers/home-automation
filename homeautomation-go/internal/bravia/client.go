@@ -1,8 +1,6 @@
 // Package bravia talks to a Sony Bravia TV over its local REST API (JSON-RPC over HTTP).
 //
-// Only picture brightness is supported. The calls match pybravia's get_picture_setting and
-// set_picture_setting (Drafteed/pybravia#21). Home Assistant's braviatv integration does not
-// expose picture settings, so this package calls the TV directly.
+// It supports the small set of direct reads and writes needed by the TV and watchdog plugins.
 package bravia
 
 import (
@@ -33,9 +31,9 @@ type Setting struct {
 
 // Client sends picture commands to one TV. It is safe for concurrent use.
 type Client struct {
-	endpoint string // e.g. http://10.0.0.5/sony/video
-	psk      string
-	http     *http.Client
+	baseURL string // e.g. http://10.0.0.5
+	psk     string
+	http    *http.Client
 }
 
 // NewClient returns a client for the TV at host (an IP address or host name, optionally with a port).
@@ -46,10 +44,36 @@ func NewClient(host, psk string) *Client {
 		base = "http://" + base
 	}
 	return &Client{
-		endpoint: base + "/sony/video",
-		psk:      psk,
-		http:     &http.Client{Timeout: defaultTimeout},
+		baseURL: base,
+		psk:     psk,
+		http:    &http.Client{Timeout: defaultTimeout},
 	}
+}
+
+// PowerStatus is the panel power state returned by getPowerStatus.
+type PowerStatus string
+
+const (
+	PowerStatusActive  PowerStatus = "active"
+	PowerStatusStandby PowerStatus = "standby"
+)
+
+// GetPowerStatus reads the panel's power state independently of Home Assistant.
+func (c *Client) GetPowerStatus(ctx context.Context) (PowerStatus, error) {
+	raw, err := c.call(ctx, "/sony/system", "getPowerStatus", nil)
+	if err != nil {
+		return "", err
+	}
+	var result []struct {
+		Status PowerStatus `json:"status"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return "", fmt.Errorf("bravia: decode power status: %w", err)
+	}
+	if len(result) != 1 || (result[0].Status != PowerStatusActive && result[0].Status != PowerStatusStandby) {
+		return "", fmt.Errorf("bravia: unexpected power status response %s", string(raw))
+	}
+	return result[0].Status, nil
 }
 
 type rpcRequest struct {
@@ -77,7 +101,7 @@ type pictureSetting struct {
 
 // GetBrightness reads the current brightness and the range the TV accepts.
 func (c *Client) GetBrightness(ctx context.Context) (Setting, error) {
-	raw, err := c.call(ctx, "getPictureQualitySettings", map[string]string{"target": "brightness"})
+	raw, err := c.call(ctx, "/sony/video", "getPictureQualitySettings", map[string]string{"target": "brightness"})
 	if err != nil {
 		return Setting{}, err
 	}
@@ -116,16 +140,20 @@ func (c *Client) SetBrightness(ctx context.Context, value int) error {
 	params := map[string]interface{}{
 		"settings": []map[string]string{{"target": "brightness", "value": strconv.Itoa(value)}},
 	}
-	_, err := c.call(ctx, "setPictureQualitySettings", params)
+	_, err := c.call(ctx, "/sony/video", "setPictureQualitySettings", params)
 	return err
 }
 
-func (c *Client) call(ctx context.Context, method string, param interface{}) (json.RawMessage, error) {
-	body, err := json.Marshal(rpcRequest{Method: method, ID: 1, Version: "1.0", Params: []interface{}{param}})
+func (c *Client) call(ctx context.Context, path, method string, param interface{}) (json.RawMessage, error) {
+	params := []interface{}{}
+	if param != nil {
+		params = append(params, param)
+	}
+	body, err := json.Marshal(rpcRequest{Method: method, ID: 1, Version: "1.0", Params: params})
 	if err != nil {
 		return nil, fmt.Errorf("bravia: encode %s: %w", method, err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("bravia: build %s request: %w", method, err)
 	}
