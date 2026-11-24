@@ -1811,7 +1811,32 @@ func (m *Manager) handleSexModeOn() {
 
 ---
 
+## Lesson 29: Record State Before the Network Call, Restore on Failure
+
+**Pattern**: When a callback can arrive while a network call is in flight, record the new state *before* sending. If the send fails, restore under a pointer-identity guard.
+
+**Why**: Some lights report their new level to the plugin while the service call is still in flight. If the command is recorded only after the call returns, the in-flight callback compares the report against the *previous* command. The report matches the new commanded level but not the old recorded one — so it looks like a manual change and the room is incorrectly held.
+
+**Key details**:
+- Record the new command under the lock, then release the lock before calling out.
+- On failure, re-acquire the lock and check `st.cmd == newCmd` (pointer identity) before restoring. A concurrent evaluation may have already replaced it; in that case, the rollback must not overwrite the replacement.
+- This is distinct from Lesson 15 (suppress echo-backs from the state manager). That lesson guards against the plugin's own writes echoing back through the HA event bus. This lesson guards against callbacks that arrive *during* the outbound service call, before the plugin has recorded what it sent.
+
+**Where Applied**: `internal/plugins/lighting/luxcontrol.go` — `luxEvaluate` (cans) and `luxDriveFollowers` (follower lights)
+
+**Tests**: `TestLux_ReportDuringServiceCallIsNotManual`, `TestLuxFollowers_FailedSendKeepsThePreviousCommand`
+
+**References**: PR #1485
+
+---
+
 ## Change Log
+
+### 2026-11-24
+- **Added Lesson 29**: Record State Before the Network Call, Restore on Failure
+  - In-flight callbacks compare a report against the *previous* command if the new one is recorded after the call returns — the report falsely looks like a manual change
+  - Pattern: record before send; rollback under pointer-identity guard on failure
+  - Applied to `internal/plugins/lighting/luxcontrol.go` — `luxEvaluate` and `luxDriveFollowers` (PR #1485)
 
 ### 2026-11-19
 - **Added Lesson 28**: Serialize HTTP Requests to a Server That Has Internal Output-Capture Races

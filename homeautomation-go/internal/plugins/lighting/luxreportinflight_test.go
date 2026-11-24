@@ -62,13 +62,24 @@ func TestLux_ReportDuringServiceCallIsNotManual(t *testing.T) {
 
 			// A new level after the first fade: the strip and the cans both get a new command,
 			// and each reports its new level before the call returns.
-			env.MockHA.ClearServiceCalls()
+			snapshot := env.MockHA.ServiceCallCount()
 			clk.Advance(2 * time.Minute)
 			clk.Set(at(20, 0))
 			env.MockHA.SetState(m.config.LuxCurve.OutdoorSensor, "0", nil)
 			m.luxTick()
-			require.NotEmpty(t, callsTo(env.MockHA, "turn_on", want.strip), "the strip got a new command")
-			require.NotEmpty(t, callsTo(env.MockHA, "turn_on", want.cans), "the cans got a new command")
+			newCalls := env.MockHA.GetServiceCallsSince(snapshot)
+			hasNewCall := func(entity string) bool {
+				for _, c := range newCalls {
+					if c.Domain == "light" && c.Service == "turn_on" {
+						if id, _ := c.Data["entity_id"].(string); id == entity {
+							return true
+						}
+					}
+				}
+				return false
+			}
+			require.True(t, hasNewCall(want.strip), "the strip got a new command")
+			require.True(t, hasNewCall(want.cans), "the cans got a new command")
 
 			assert.False(t, m.luxHeld(room), "the plugin's own level is not a manual change")
 			m.luxMu.Lock()
