@@ -590,6 +590,9 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 	// Re-read under lock before sending: a handleCansChange between the first unlock and here
 	// may have started a hold check. Sending now would overwrite the person's change, and the
 	// confirming read would see our own command and clear the check without holding.
+	// The command is recorded before it is sent. A light can report the new level while the
+	// service call is still in flight. That report must be compared with this command, not
+	// the one before it, or it looks like a manual change.
 	m.luxMu.Lock()
 	if st.checking != nil {
 		st.checking.skipped = true
@@ -597,26 +600,26 @@ func (m *Manager) luxEvaluate(room *RoomConfig, trigger string) {
 		finish("checking a possible manual change, lights left alone" + note)
 		return
 	}
+	oldCmd, oldPrevious := st.cmd, st.previous
+	st.previous = st.cmd
+	st.cmd = cmd
 	m.luxMu.Unlock()
 
 	if !luxActive(room) || m.readOnly {
-		m.luxMu.Lock()
-		st.previous = st.cmd
-		st.cmd = cmd
-		m.luxMu.Unlock()
 		m.luxDriveFollowers(room, st, cmd)
 		finish(fmt.Sprintf("would send %s (%s mode, read-only=%t)%s", describeLuxCommand(cmd), lc.Mode, m.readOnly, note))
 		return
 	}
 
 	if err := m.sendLuxCommand(room, cmd); err != nil {
+		m.luxMu.Lock()
+		if st.cmd == cmd { // nothing replaced it meanwhile
+			st.cmd, st.previous = oldCmd, oldPrevious
+		}
+		m.luxMu.Unlock()
 		finish("send failed: " + err.Error() + note)
 		return
 	}
-	m.luxMu.Lock()
-	st.previous = st.cmd
-	st.cmd = cmd
-	m.luxMu.Unlock()
 	m.luxDriveFollowers(room, st, cmd)
 	finish("sent " + describeLuxCommand(cmd) + note)
 }
@@ -1138,17 +1141,26 @@ func (m *Manager) luxDriveFollowers(room *RoomConfig, st *luxRoomState, cans *lu
 		if prev != nil && prev.on == next.on && (!next.on || math.Abs(prev.pct-next.pct) < minBrightnessDelta) {
 			continue
 		}
+		// Record before sending: some lights report the new level while the service call is still
+		// in flight. Compared with the old command, that report looks like a manual change.
+		m.luxMu.Lock()
+		oldPrevious := st.previousFollowers[f.Entity]
+		st.previousFollowers[f.Entity] = prev
+		st.followers[f.Entity] = next
+		m.luxMu.Unlock()
 		if send {
 			if err := m.sendFollowerCommand(room, f.Entity, next); err != nil {
 				m.logger.Warn("Lux control follower command failed",
 					zap.String("room", room.HueGroup), zap.String("entity_id", f.Entity), zap.Error(err))
+				m.luxMu.Lock()
+				if st.followers[f.Entity] == next { // nothing replaced it meanwhile
+					st.followers[f.Entity] = prev
+					st.previousFollowers[f.Entity] = oldPrevious
+				}
+				m.luxMu.Unlock()
 				continue
 			}
 		}
-		m.luxMu.Lock()
-		st.previousFollowers[f.Entity] = prev
-		st.followers[f.Entity] = next
-		m.luxMu.Unlock()
 	}
 }
 

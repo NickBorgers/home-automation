@@ -122,6 +122,8 @@ A manual change is any change to a controlled light that this plugin did not com
 
 The plugin remembers the current and immediately preceding commands: where each fade starts, where it ends, and how long it takes. It checks every report the moment it arrives. A report that arrives during the 1 s bridge-lag window may match either fade, so back-to-back transitions do not mistake a delayed report from the preceding fade for a manual change. After that window, a person who turns the dial stops the plugin within a few seconds (see the confirmation read below).
 
+The plugin records each command, for the cans and for each follower light, before it sends it. Some lights report their new level while the service call is still in flight. That report must be compared with the new command. Compared with the one before it, it looks like a manual change. If the send fails, the plugin puts the earlier record back.
+
 - A report counts as the plugin's own change when it is on the fade's path. The path runs from where the fade was 1 s ago (reports can arrive late) to the commanded value.
 - A report more than 1.5% brightness or 50 K behind that path is manual. A fade never moves backward, so a move against its direction is a person. Example: during a fade down, any turn up.
 - A report more than about 5% brightness or 150 K past the commanded value is manual.
