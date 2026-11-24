@@ -72,8 +72,11 @@ type brightnessControl struct {
 	// powerOnGen is incremented each time the TV turns on, so a delayed goroutine from a prior
 	// power-on cycle can detect that it has been superseded and exit without clearing state.
 	powerOnGen uint64
-	tv         deviceBrightness
-	syncBox    deviceBrightness
+	// powerSessionVerified is true only after this process observes an off-to-on edge. An initial
+	// HA "on" snapshot may be stale and cannot establish that brightness readings share a session.
+	powerSessionVerified bool
+	tv                   deviceBrightness
+	syncBox              deviceBrightness
 }
 
 // SetPictureClient enables TV brightness control. Without it, only the sync box follows the target.
@@ -109,10 +112,11 @@ func (m *Manager) handleSyncBoxLightSyncChange(_ string, _, newState *ha.State) 
 // If the TV turns off and on again within the power-on delay, two goroutines are outstanding.
 // powerOnGen lets the earlier goroutine detect it has been superseded and exit without clearing
 // the state that the later goroutine (and any intervening lux handler) may have already set.
-func (m *Manager) brightnessOnPowerOn() {
+func (m *Manager) brightnessOnPowerOn(powerSessionVerified bool) {
 	m.bright.mu.Lock()
 	delay := m.bright.powerOnDelay
 	m.bright.powerOnGen++
+	m.bright.powerSessionVerified = powerSessionVerified
 	gen := m.bright.powerOnGen
 	m.bright.mu.Unlock()
 	go func() {
@@ -134,16 +138,18 @@ func (m *Manager) brightnessOnPowerOff(powerState string) {
 	m.bright.mu.Lock()
 	defer m.bright.mu.Unlock()
 	m.bright.powerOnGen++
+	m.bright.powerSessionVerified = false
 	m.bright.tv = deviceBrightness{}
 	m.bright.syncBox = deviceBrightness{}
 	m.shadowTracker.UpdateBrightness(shadowstate.TVBrightnessState{
-		Trigger:           "tv_power_off",
-		SessionGeneration: m.bright.powerOnGen,
-		PowerState:        powerState,
-		Decision:          "TV off; brightness session cleared",
-		TV:                shadowstate.DeviceBrightnessState{Decision: "session cleared"},
-		SyncBox:           shadowstate.DeviceBrightnessState{Decision: "session cleared"},
-		LastUpdate:        m.timeNow(),
+		Trigger:              "tv_power_off",
+		SessionGeneration:    m.bright.powerOnGen,
+		PowerState:           powerState,
+		PowerSessionVerified: false,
+		Decision:             "TV off; brightness session cleared",
+		TV:                   shadowstate.DeviceBrightnessState{Decision: "session cleared"},
+		SyncBox:              shadowstate.DeviceBrightnessState{Decision: "session cleared"},
+		LastUpdate:           m.timeNow(),
 	})
 	m.logger.Debug("TV brightness session cleared",
 		zap.Uint64("session_generation", m.bright.powerOnGen), zap.String("power_state", powerState))
@@ -164,6 +170,7 @@ func (m *Manager) applyBrightnessLocked(trigger string) {
 	m.tvRemoteMu.RUnlock()
 	rec := shadowstate.TVBrightnessState{
 		Trigger: trigger, SessionGeneration: m.bright.powerOnGen, PowerState: powerState,
+		PowerSessionVerified: m.bright.powerSessionVerified,
 	}
 	defer func() {
 		rec.LastUpdate = m.timeNow()
@@ -254,7 +261,7 @@ func (m *Manager) applyTVBrightness(frac float64) shadowstate.DeviceBrightnessSt
 		// Goal is not set here: computing it requires a live read of the TV's range (Min/Max),
 		// which costs a network round-trip. Shadow state shows Goal=0 while held.
 		out.Held, out.HeldReason, out.HoldEvidence, out.Decision =
-			true, dev.heldReason, dev.holdEvidence, "held: manual change"
+			true, dev.heldReason, dev.holdEvidence, "held: brightness mismatch"
 		return out
 	}
 	ctx, cancel := context.WithTimeout(m.ctx, braviaCallTimeout)
@@ -295,7 +302,19 @@ func (m *Manager) applyTVBrightness(frac float64) shadowstate.DeviceBrightnessSt
 				zap.Int("current", s.Current), zap.Int("last_set", lastSet), zap.Error(err))
 			return out
 		}
-		out.HoldEvidence = "brightness mismatch confirmed by writable display"
+		out.HoldEvidence = "brightness mismatch confirmed; cause unknown; writable display"
+		if !m.bright.powerSessionVerified {
+			out.HoldEvidence = "brightness mismatch; cause unknown; power session unverified"
+			dev.last = nil
+			m.tvRemoteMu.RLock()
+			powerState := m.tvRemoteRawState
+			m.tvRemoteMu.RUnlock()
+			m.logger.Info("Brightness mismatch has unknown cause; continuing calculated control",
+				zap.String("device", "TV"), zap.Int("current", s.Current), zap.Int("last_set", lastSet),
+				zap.Uint64("session_generation", m.bright.powerOnGen),
+				zap.Bool("power_session_verified", false), zap.String("power_state", powerState),
+				zap.String("read_source", out.ReadSource))
+		}
 	}
 	return m.decideAndSend(dev, out, s.Current, 0, 1, "TV", func() error {
 		return m.bright.client.SetBrightness(ctx, goal)
@@ -316,14 +335,14 @@ func (m *Manager) decideAndSend(dev *deviceBrightness, out shadowstate.DeviceBri
 		m.tvRemoteMu.RLock()
 		powerState := m.tvRemoteRawState
 		m.tvRemoteMu.RUnlock()
-		m.logger.Info("Manual brightness change, holding until the TV turns off",
+		m.logger.Info("Brightness mismatch, holding until the TV turns off",
 			zap.String("device", name), zap.Int("current", cur), zap.Int("last_set", *dev.last),
 			zap.Uint64("session_generation", m.bright.powerOnGen), zap.String("power_state", powerState),
 			zap.String("read_source", out.ReadSource), zap.String("hold_evidence", out.HoldEvidence))
 	}
 	if dev.held {
 		out.Held, out.HeldReason, out.HoldEvidence, out.Decision =
-			true, dev.heldReason, dev.holdEvidence, "held: manual change"
+			true, dev.heldReason, dev.holdEvidence, "held: brightness mismatch"
 		return out
 	}
 	if absInt(out.Goal-cur) < minStep {

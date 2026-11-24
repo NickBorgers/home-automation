@@ -73,6 +73,7 @@ func newBrightnessManager(t *testing.T, readOnly bool, lux float64, pic PictureC
 	mockHA.SetState(SyncBoxLightSyncEntity, "on", nil)
 	m := NewManager(context.Background(), mockHA, stateMgr, zap.NewNop(), readOnly, nil)
 	m.tvRemoteOn = true
+	m.bright.powerSessionVerified = true
 	if pic != nil {
 		m.SetPictureClient(pic)
 	}
@@ -226,7 +227,7 @@ func TestBrightnessOnPowerOn_StaleGoroutineDoesNotClearHold(t *testing.T) {
 
 	// The first power-on apply waits while a manual change is detected.
 	m.SetBrightnessPowerOnDelay(g1Delay)
-	m.brightnessOnPowerOn() // G1
+	m.brightnessOnPowerOn(true) // G1
 
 	// A person changes brightness: manual hold detected.
 	pic.mu.Lock()
@@ -244,7 +245,7 @@ func TestBrightnessOnPowerOn_StaleGoroutineDoesNotClearHold(t *testing.T) {
 	m.brightnessOnPowerOff("standby")
 	require.False(t, m.GetShadowState().Outputs.Brightness.TV.Held, "off must clear the hold immediately")
 	m.SetBrightnessPowerOnDelay(g2Delay)
-	m.brightnessOnPowerOn() // G2
+	m.brightnessOnPowerOn(true) // G2
 	require.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
