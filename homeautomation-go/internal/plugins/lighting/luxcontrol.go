@@ -705,6 +705,8 @@ func (m *Manager) sendLuxCommand(room *RoomConfig, cmd *luxCommand) error {
 		zap.String("room", room.HueGroup),
 		zap.String("entity_id", room.LuxControl.Cans),
 		zap.String("service", service),
+		zap.Time("command_at", cmd.at),
+		zap.Time("transition_end", luxFadeEnd(cmd)),
 		zap.Any("data", data))
 	return m.haClient.CallService(m.ctx, "light", service, data)
 }
@@ -742,8 +744,25 @@ func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 		m.luxMu.Unlock()
 		return
 	}
+	if newState.Context != nil && newState.Context.ParentID != "" {
+		m.luxMu.Unlock()
+		m.logger.Info("Ignoring cans report from a known Home Assistant automation",
+			zap.String("room", room.HueGroup),
+			zap.String("entity_id", newState.EntityID),
+			zap.String("report_state", newState.State),
+			zap.Time("report_received_at", now),
+			zap.Time("report_last_updated", newState.LastUpdated),
+			zap.String("report_source", "home_assistant_automation"),
+			zap.Time("command_at", cmd.at),
+			zap.Time("transition_end", luxFadeEnd(cmd)),
+			zap.String("command_service", luxCommandService(cmd)),
+			zap.String("difference", reason),
+			zap.String("correlation_decision", "ignored: automation context has a parent"))
+		return
+	}
 	if cmd.on && newState.State == "on" {
-		// A brightness or color difference: confirm it with a fresh read before holding.
+		// Automation reports are gated above (ParentID check); only user-attributed and
+		// unknown-origin reports reach this scheduling path.
 		check := &luxHoldCheck{reason: reason, last: newState}
 		if !luxReportFresh(cmd, now) {
 			check.stale = newState
@@ -770,9 +789,17 @@ func (m *Manager) handleCansChange(room *RoomConfig, newState *ha.State) {
 		st.previous = nil
 	}
 	m.luxMu.Unlock()
-	m.logger.Info("Manual change detected; holding room",
+	m.logger.Info("Uncorrelated cans change detected; holding room",
 		zap.String("room", room.HueGroup),
-		zap.String("reason", reason))
+		zap.String("entity_id", newState.EntityID),
+		zap.String("reason", reason),
+		zap.String("report_source", cansReportSource(newState)),
+		zap.Time("report_received_at", now),
+		zap.Time("report_last_updated", newState.LastUpdated),
+		zap.Time("command_at", cmd.at),
+		zap.Time("transition_end", luxFadeEnd(cmd)),
+		zap.String("command_service", luxCommandService(cmd)),
+		zap.String("correlation_decision", "accepted: report origin is not a known automation"))
 	m.setLuxHoldHelper(room, true)
 	if stabilizing != nil {
 		if err := m.sendLuxCommand(room, stabilizing); err != nil {
@@ -798,6 +825,26 @@ func cansChangeReason(room *RoomConfig, st *luxRoomState, s *ha.State, now time.
 		reason = ""
 	}
 	return reason
+}
+
+func luxCommandService(cmd *luxCommand) string {
+	if cmd.on {
+		return "turn_on"
+	}
+	return "turn_off"
+}
+
+func cansReportSource(s *ha.State) string {
+	if s.Context == nil || s.Context.ID == "" {
+		return "unknown: no Home Assistant context"
+	}
+	if s.Context.ParentID != "" {
+		return "home_assistant_automation"
+	}
+	if s.Context.UserID != "" {
+		return "home_assistant_user"
+	}
+	return "unknown: Home Assistant context has no user or parent"
 }
 
 // scheduleLuxHoldCheck reads the cans again after luxHoldConfirmDelay. Caller must hold luxMu.
@@ -912,10 +959,25 @@ func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
 		return
 	}
 	st.held, st.heldSince, st.heldReason = true, now, reason
+	cmd := st.cmd
+	report := check.last
+	if s != nil {
+		report = s
+	}
+	reportReceivedAt := st.lastReportAt
 	m.luxMu.Unlock()
-	m.logger.Info("Manual change detected; holding room",
+	m.logger.Info("Uncorrelated cans change detected; holding room",
 		zap.String("room", room.HueGroup),
-		zap.String("reason", reason))
+		zap.String("entity_id", report.EntityID),
+		zap.String("reason", reason),
+		zap.String("report_state", report.State),
+		zap.String("report_source", cansReportSource(report)),
+		zap.Time("report_received_at", reportReceivedAt),
+		zap.Time("report_last_updated", report.LastUpdated),
+		zap.Time("command_at", cmd.at),
+		zap.Time("transition_end", luxFadeEnd(cmd)),
+		zap.String("command_service", luxCommandService(cmd)),
+		zap.String("correlation_decision", "accepted: report origin is not a known automation"))
 	m.setLuxHoldHelper(room, true)
 }
 
@@ -951,9 +1013,17 @@ func (m *Manager) resendLuxCommand(room *RoomConfig, st *luxRoomState, s *ha.Sta
 		m.luxMu.Unlock()
 		m.logger.Error("Failed to send the command again", zap.String("room", room.HueGroup), zap.Error(err))
 		if held {
-			m.logger.Info("Manual change detected; holding room",
+			m.logger.Info("Uncorrelated cans change detected; holding room",
 				zap.String("room", room.HueGroup),
-				zap.String("reason", reason))
+				zap.String("entity_id", s.EntityID),
+				zap.String("reason", reason),
+				zap.String("report_source", cansReportSource(s)),
+				zap.Time("report_received_at", now),
+				zap.Time("report_last_updated", s.LastUpdated),
+				zap.Time("command_at", resend.at),
+				zap.Time("transition_end", luxFadeEnd(resend)),
+				zap.String("command_service", luxCommandService(resend)),
+				zap.String("correlation_decision", "accepted after command resend failed"))
 			m.setLuxHoldHelper(room, true)
 		}
 		return
@@ -1249,7 +1319,7 @@ func manualChangeReason(cmd *luxCommand, s *ha.State, colorTemp bool, now time.T
 			if early && cmd.fromOn {
 				return ""
 			}
-			return "cans turned on by hand"
+			return "cans turned on outside the lighting command"
 		}
 		if b, ok := numberAttr(s.Attributes, "brightness"); ok {
 			pct := b / 255 * 100
@@ -1274,7 +1344,7 @@ func manualChangeReason(cmd *luxCommand, s *ha.State, colorTemp bool, now time.T
 			if early && !cmd.fromOn {
 				return ""
 			}
-			return "cans turned off by hand"
+			return "cans turned off outside the lighting command"
 		}
 	}
 	return ""
