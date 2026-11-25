@@ -350,12 +350,36 @@ person events. The name is a logical state variable, not evidence that a particu
 installed or authoritative. A retired Home Assistant automation once populated the same compatibility helper
 from an mmWave radar; that is historical only and is not part of the current kitchen occupancy path.
 
+### Off delay
+
+One person who stands on the border of two areas can make two cameras, or two overlapping zones of one
+camera, disagree. The token then moves back and forth between the areas. An output that covers only one of
+them turns on and off many times a minute. `output_off_delay` stops that:
+
+- An output that changes from true to false stays true until the computed value has stayed false for
+  `output_off_delay`.
+- If the value becomes true again in that time, the pending off is cancelled and the output stays true.
+- True is reported and written at once, as without the delay.
+- The pending off ends on the first tick (once a second) at or after its deadline, with or without a Frigate
+  event. So the output turns false at most 1 s after the delay is over.
+- Only outputs are delayed. Area occupancy in shadow state, the occupancy other plugins read, entry signals
+  and tokens change at once.
+- The delay works the same in `log_only` and `active` mode: the logs and shadow state show the delayed value.
+- After a restart in `active` mode, an output that Home Assistant shows true starts with a pending off. If a
+  camera finds the person again within the delay, the output stays true. In `log_only` mode, and with the
+  delay off, a restart starts from the tokens alone.
+
+For example, with `outputs: {isAOccupied: [a]}` and `output_off_delay: 30s`, a token that goes from `a` to `b`
+and back 10 s later leaves `isAOccupied` true. A token that goes to `b` and stays turns it false 30 s later.
+In a replay of real logs, a delay of this size removed most output changes.
+
 The plugin also reports, in shadow state only (query in real time with `curl /api/shadow/roompresence`):
 
 - Tokens: area, when last seen, which camera, confirmed or not, and why each one last moved.
 - Recent tracks with their zone order.
 - Camera health.
 - Zones that match no area.
+- `pendingOff`: for each output that `output_off_delay` holds true, when it turns false if it stays false.
 
 A short **entry signal** goes with each occupied change: "a token just arrived from outside the area". The lux
 controller can use it for a fast fade-in on room entry. A token that only expired, or the plugin starting up,
@@ -427,6 +451,7 @@ room_presence:
                entry_sensors: [input_boolean.example_porch_door_unlocked] }
   outputs:                    # only written in active mode
     isKitchenOccupied: [kitchen]
+  output_off_delay: 0s        # optional; 0s = off
   zone_overrides:             # zone name -> area, <area>_to_<area>, or ignore
     hall_doormat: hall
 ```
@@ -439,6 +464,8 @@ room_presence:
   "Coming in".
 - `track_silence_timeout` (default 60s) is how long a track may send nothing before the plugin ends it. It
   must be longer than `handoff_window`. See "Silent tracks" under [When a track ends](#when-a-track-ends).
+- `output_off_delay` (optional, default 0s = off) is how long an output must stay false before it turns from
+  true to false. It must not be negative. See [Off delay](#off-delay).
 - An area with no `idle_limit` never expires. Nobody-home and the people count still remove its tokens.
 - `cameras` (optional) maps a camera to the areas it sees. The plugin also learns this from the zones each
   camera reports. It decides which areas freeze when a camera stops.
@@ -469,7 +496,8 @@ One line per change. A token whose `lastSeen` only moves logs nothing.
 - `Room presence token removed`: `token`, `area`, `reason` (the removal reason).
 - `Room presence output changed`: `key`, `value`, `previous` (absent on the first value), `mode`, and
   `written`. `written` is true only in `active` mode without read-only. In `log_only` it shows what the
-  output would have been. The first value of an output is logged only when it is true.
+  output would have been. The first value of an output is logged only when it is true. With
+  `output_off_delay`, the line gives the delayed value, so an off that is cancelled logs nothing.
 - `Room presence output`: an output was written to Home Assistant (active mode).
 - `Person entered area` stays at Debug. It is the entry signal for lux control, not a state change.
 

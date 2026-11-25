@@ -33,5 +33,6 @@ room_presence:
                entry_sensors: [input_boolean.example_porch_door_unlocked] }
   outputs:                    # only written in active mode
     isKitchenOccupied: [kitchen]
+  output_off_delay: 0s        # optional; how long an output stays true after its areas empty. 0s = off
   zone_overrides:             # zone name -> area, <area>_to_<area>, or ignore
     hall_doormat: hall
