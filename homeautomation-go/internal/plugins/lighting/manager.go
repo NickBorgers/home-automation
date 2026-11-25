@@ -1267,7 +1267,8 @@ func (m *Manager) turnOnAwayNightLight(ctx context.Context, room *RoomConfig) st
 
 // splitGroupsAround replaces each light group in entities that contains a kept light with the group's
 // members, so that turning the group off cannot turn a kept light off. The caller then drops the kept
-// members. It reports whether it split any group. An entity whose state cannot be read is kept as is.
+// members. It reports whether it split any group. A group whose state cannot be read is not split, so a
+// turn-off of that group can still reach the kept lights inside it.
 func (m *Manager) splitGroupsAround(room *RoomConfig, entities []string, keep map[string][]string) ([]string, bool) {
 	out := make([]string, 0, len(entities))
 	seen := make(map[string]bool, len(entities))
