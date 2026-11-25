@@ -88,6 +88,13 @@ type Config struct {
 	// Outputs maps a boolean state variable to the areas that make it true. Written only in active mode.
 	Outputs map[string][]string `yaml:"outputs"`
 
+	// OutputOffDelay is how long an output must stay false before it changes from true to false. If it
+	// becomes true again within this time, it stays true. True is reported at once. One person on the
+	// border of two areas can move a token back and forth many times a minute, and this keeps an output
+	// that covers only one of those areas from following each move. It changes only the outputs: area
+	// occupancy, entry signals and tokens are not delayed. 0 (the default) turns it off.
+	OutputOffDelay time.Duration `yaml:"output_off_delay"`
+
 	// ZoneOverrides maps a Frigate zone name to an area, to a boundary written as <area>_to_<area>, or to
 	// "ignore". Use it for zone names that break the naming convention.
 	ZoneOverrides map[string]string `yaml:"zone_overrides"`
@@ -274,6 +281,9 @@ func (c *Config) validate() error {
 	}
 	if c.TokenStoreMaxAge < 0 {
 		errs = append(errs, "token_store_max_age must be positive")
+	}
+	if c.OutputOffDelay < 0 {
+		errs = append(errs, "output_off_delay must not be negative")
 	}
 	for cam, areas := range c.Cameras {
 		for _, a := range areas {

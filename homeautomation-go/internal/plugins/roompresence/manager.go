@@ -43,9 +43,10 @@ type Manager struct {
 	// applyMu serializes apply, so output writes reach Home Assistant in the order they were computed.
 	// It is taken before mu.
 	applyMu sync.Mutex
-	// mu guards tracker, written and entryHandlers.
+	// mu guards tracker, offDelay, written and entryHandlers.
 	mu            sync.Mutex
 	tracker       *Tracker
+	offDelay      *offDelay       // applies output_off_delay to the tracker's outputs
 	written       map[string]bool // last value written per output, in active mode
 	entryHandlers []func(area string)
 
@@ -90,6 +91,7 @@ func NewManager(ctx context.Context, haClient ha.HAClient, stateManager *state.M
 	}
 	if cfg != nil {
 		m.tracker = NewTracker(cfg)
+		m.offDelay = newOffDelay(cfg.OutputOffDelay)
 	}
 	return m
 }
@@ -114,6 +116,8 @@ func (m *Manager) Start() error {
 		m.publishShadow()
 		return nil
 	}
+
+	m.holdWrittenOutputs()
 
 	// Load kept tokens before anything can save, or the first save would overwrite them.
 	m.restoreTokens()
@@ -185,8 +189,27 @@ func (m *Manager) Start() error {
 		zap.String("mode", m.cfg.Mode),
 		zap.Bool("read_only", m.readOnly),
 		zap.Int("areas", len(m.cfg.Areas)),
-		zap.Int("outputs", len(m.cfg.Outputs)))
+		zap.Int("outputs", len(m.cfg.Outputs)),
+		zap.Duration("output_off_delay", m.cfg.OutputOffDelay))
 	return nil
+}
+
+// holdWrittenOutputs starts a pending off for each output that Home Assistant shows true at startup, when
+// the plugin writes outputs. Cameras find people in seen areas again only when Frigate next reports them,
+// so without this a restart would turn such an output off at once. In log_only mode the helper's value is
+// not the plugin's, so it is not read.
+func (m *Manager) holdWrittenOutputs() {
+	if m.cfg.OutputOffDelay <= 0 || m.cfg.Mode != ModeActive || m.readOnly {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now()
+	for _, key := range sortedKeys(m.cfg.Outputs) {
+		if v, err := m.stateManager.GetBool(key); err == nil && v {
+			m.offDelay.hold(now, key)
+		}
+	}
 }
 
 // Stop ends subscriptions and the timer.
@@ -315,8 +338,10 @@ func (m *Manager) apply(op func(t *Tracker, now time.Time)) {
 	op(m.tracker, now)
 	entries := m.tracker.DrainEntries()
 	kept := m.tracker.UnseenTokens()
-	outputs := m.tracker.Outputs()
 	snapshot := m.tracker.Snapshot()
+	outputs := m.offDelay.apply(now, snapshot.Outputs) // a new map; nothing below changes it
+	snapshot.Outputs = outputs
+	snapshot.PendingOff = m.offDelay.pending()
 	handlers := append([]func(string){}, m.entryHandlers...)
 	writes := m.pendingWrites(outputs)
 	m.mu.Unlock()

@@ -1580,6 +1580,9 @@ type RoomPresenceOutputs struct {
 
 	// Outputs are the computed state variables. They are written to Home Assistant only in active mode.
 	Outputs map[string]bool `json:"outputs,omitempty"`
+	// PendingOff gives, for each output that output_off_delay holds true, when it turns false if it stays
+	// false until then.
+	PendingOff map[string]time.Time `json:"pendingOff,omitempty"`
 
 	Areas        map[string]RoomPresenceArea   `json:"areas,omitempty"`
 	Tokens       []RoomPresenceToken           `json:"tokens"`
