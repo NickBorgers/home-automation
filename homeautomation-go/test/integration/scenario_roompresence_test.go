@@ -496,3 +496,53 @@ func TestScenario_RoomPresence_DoorSensorFindsPersonInBedroom(t *testing.T) {
 	assert.False(t, mgr.Occupied("bedroom"), "the person who left closed the door")
 	assert.True(t, mgr.Occupied("hall"))
 }
+
+// GIVEN output_off_delay is set and a person is in the kitchen
+// WHEN they step over the border into the lounge and back within the delay
+// THEN isKitchenOccupied stays on
+//
+// AND WHEN they then stay in the lounge, with no more Frigate events
+// THEN isKitchenOccupied turns off after the delay
+func TestScenario_RoomPresence_OutputOffDelayIgnoresBorderFlicker(t *testing.T) {
+	const delay = 1500 * time.Millisecond
+	server, mgr, cleanup := setupRoomPresenceScenario(t, func(cfg *roompresence.Config) {
+		cfg.OutputOffDelay = delay
+	})
+	defer cleanup()
+
+	t.Log("GIVEN: a person walks into the empty kitchen")
+	server.SetState("input_boolean.kitchen_occupied", "off", nil)
+	publishFrigate(t, server, "new", "a", "cam_kitchen", []string{})
+	publishFrigate(t, server, "update", "a", "cam_kitchen", []string{"kitchen_to_hall"}, "kitchen_to_hall")
+	publishFrigate(t, server, "update", "a", "cam_kitchen", []string{"kitchen_to_hall", "kitchen"}, "kitchen")
+	waitForServerState(t, server, "input_boolean.kitchen_occupied", "on")
+
+	t.Log("WHEN: they step into the lounge")
+	publishFrigate(t, server, "update", "a", "cam_kitchen", []string{"kitchen_to_hall", "kitchen", "lounge"}, "lounge")
+	require.Eventually(t, func() bool { return mgr.Occupied("lounge") && !mgr.Occupied("kitchen") },
+		5*time.Second, 10*time.Millisecond)
+
+	t.Log("THEN: isKitchenOccupied stays on while the off is pending")
+	// Give a write time to happen. require.Eventually cannot prove that nothing was written.
+	time.Sleep(300 * time.Millisecond)
+	assert.Equal(t, "on", server.GetState("input_boolean.kitchen_occupied").State)
+	assert.Contains(t, mgr.GetShadowState().Outputs.PendingOff, "isKitchenOccupied")
+
+	t.Log("AND WHEN: they step back into the kitchen within the delay")
+	publishFrigate(t, server, "update", "a", "cam_kitchen", []string{"kitchen_to_hall", "kitchen", "lounge"}, "kitchen")
+	require.Eventually(t, func() bool { return mgr.Occupied("kitchen") }, 5*time.Second, 10*time.Millisecond)
+
+	t.Log("THEN: the pending off is cancelled, and the output is still on after the delay")
+	time.Sleep(delay + 1200*time.Millisecond) // past the delay and the next tick
+	assert.Equal(t, "on", server.GetState("input_boolean.kitchen_occupied").State)
+	assert.Empty(t, mgr.GetShadowState().Outputs.PendingOff)
+
+	t.Log("AND WHEN: they step into the lounge and stay, with no more Frigate events")
+	publishFrigate(t, server, "update", "a", "cam_kitchen", []string{"kitchen_to_hall", "kitchen", "lounge"}, "lounge")
+	movedAt := time.Now()
+	require.Eventually(t, func() bool { return !mgr.Occupied("kitchen") }, 5*time.Second, 10*time.Millisecond)
+
+	t.Log("THEN: a tick turns isKitchenOccupied off once the delay is over")
+	waitForServerState(t, server, "input_boolean.kitchen_occupied", "off")
+	assert.GreaterOrEqual(t, time.Since(movedAt), delay, "off waits for the delay")
+}
