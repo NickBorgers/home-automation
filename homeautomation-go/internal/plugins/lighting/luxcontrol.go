@@ -964,7 +964,7 @@ func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
 			// A member off the path reported after the fade ended, and no member off the path is
 			// stale: fresh evidence of a person's change. The group-level freshness tests below do
 			// not apply; a group still moving is read again before it holds.
-		} else if within && !fresh {
+		} else if within && !fresh { // members == nil: single light or unreadable group; use group-level report
 			// The reading arrived before the fade ended, so it may show a level from early in the
 			// fade. It is never enough to hold. Wait for a fresh report, and give up without
 			// holding when none comes.
