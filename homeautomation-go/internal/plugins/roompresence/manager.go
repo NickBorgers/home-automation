@@ -338,12 +338,9 @@ func (m *Manager) apply(op func(t *Tracker, now time.Time)) {
 	op(m.tracker, now)
 	entries := m.tracker.DrainEntries()
 	kept := m.tracker.UnseenTokens()
-	outputs := m.offDelay.apply(now, m.tracker.Outputs())
 	snapshot := m.tracker.Snapshot()
-	snapshot.Outputs = make(map[string]bool, len(outputs))
-	for k, v := range outputs {
-		snapshot.Outputs[k] = v
-	}
+	outputs := m.offDelay.apply(now, snapshot.Outputs) // a new map; nothing below changes it
+	snapshot.Outputs = outputs
 	snapshot.PendingOff = m.offDelay.pending()
 	handlers := append([]func(string){}, m.entryHandlers...)
 	writes := m.pendingWrites(outputs)
