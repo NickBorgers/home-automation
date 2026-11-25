@@ -44,6 +44,20 @@ type RoomConfig struct {
 	// LuxControl opts the room's ceiling cans into lux-target control.
 	// See docs/flows/LUX_LIGHTING.md. Nil means the room stays on scenes.
 	LuxControl *LuxControlConfig `yaml:"lux_control"`
+
+	// AwayNightLight keeps some of the room's lights on at a low level, instead of off, while nobody
+	// is home and it is dark outside. Nil means the room turns off as usual.
+	AwayNightLight *AwayNightLightConfig `yaml:"away_night_light"`
+}
+
+// AwayNightLightConfig lists lights that stay on at a low level while nobody is home and it is dark
+// outside (isAnyoneHome false, isDarkOutside true). It applies only when the room's conditions turn
+// the room off. Every other light in the room still turns off. A light group in the room that holds
+// a night light is turned off member by member, so the group cannot turn the night light off.
+type AwayNightLightConfig struct {
+	Lights        []string `yaml:"lights"`         // light entities to keep on
+	BrightnessPct float64  `yaml:"brightness_pct"` // 1-100
+	Kelvin        int      `yaml:"kelvin"`         // color temperature; 0 sends none
 }
 
 // Lux control modes. In log_only mode the plugin computes and records what it would
@@ -385,6 +399,34 @@ func LoadConfig(path string) (*HueConfig, error) {
 			!strings.HasPrefix(config.ColorTracking.TargetEntity, "light.")) {
 		return nil, fmt.Errorf("invalid color tracking config: source_entity and target_entity must be light entities")
 	}
+	if err := config.validateAwayNightLights(); err != nil {
+		return nil, fmt.Errorf("invalid away night light config: %w", err)
+	}
 
 	return &config, nil
+}
+
+// validateAwayNightLights checks every room's away_night_light block. It returns the first problem.
+func (c *HueConfig) validateAwayNightLights() error {
+	for _, r := range c.Rooms {
+		n := r.AwayNightLight
+		if n == nil {
+			continue
+		}
+		if len(n.Lights) == 0 {
+			return fmt.Errorf("room %q: away_night_light.lights is empty", r.HueGroup)
+		}
+		for _, light := range n.Lights {
+			if !strings.HasPrefix(light, "light.") {
+				return fmt.Errorf("room %q: away_night_light light %q is not a light entity", r.HueGroup, light)
+			}
+		}
+		if n.BrightnessPct < 1 || n.BrightnessPct > 100 {
+			return fmt.Errorf("room %q: away_night_light.brightness_pct must be 1-100", r.HueGroup)
+		}
+		if n.Kelvin < 0 {
+			return fmt.Errorf("room %q: away_night_light.kelvin must not be negative", r.HueGroup)
+		}
+	}
+	return nil
 }

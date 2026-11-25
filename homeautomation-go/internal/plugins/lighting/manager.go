@@ -449,6 +449,10 @@ func (m *Manager) collectConditionVariables() []string {
 				varMap[varName] = true
 			}
 		}
+		// The away night light turns on and off as it gets dark and light outside.
+		if room.AwayNightLight != nil {
+			varMap["isDarkOutside"] = true
+		}
 	}
 
 	// Convert map to slice
@@ -668,6 +672,11 @@ func (m *Manager) isTopicRelevant(room *RoomConfig, trigger string) bool {
 		if trigger == "isAnyoneHome" && cond.Variable == "isAnyoneHomeAndAwake" {
 			return true
 		}
+	}
+
+	// The away night light depends on presence and darkness even when the conditions do not.
+	if room.AwayNightLight != nil && (trigger == "isAnyoneHome" || trigger == "isDarkOutside") {
+		return true
 	}
 
 	return false
@@ -1134,6 +1143,26 @@ func (m *Manager) turnOffRoom(ctx context.Context, room *RoomConfig, trigger str
 	if m.lightHolds != nil {
 		held = m.lightHolds.HeldEntities(m.clock.Now())
 	}
+	// While the away night light is active, no room's turn-off may cover any room's night lights: a
+	// night light can also sit in another room's area or light group.
+	nightActive := m.awayNightLightActive()
+	var nightLights []string
+	if nightActive {
+		if room.AwayNightLight != nil {
+			nightLights = room.AwayNightLight.Lights
+		}
+		for _, r := range m.config.Rooms {
+			if r.AwayNightLight == nil {
+				continue
+			}
+			if held == nil {
+				held = make(map[string][]string)
+			}
+			for _, light := range r.AwayNightLight.Lights {
+				held[light] = append(held[light], awayNightLightOwner)
+			}
+		}
+	}
 	if len(held) > 0 {
 		entities, err := m.turnOffEntities(room, serviceData)
 		if err != nil {
@@ -1141,6 +1170,7 @@ func (m *Manager) turnOffRoom(ctx context.Context, room *RoomConfig, trigger str
 				zap.String("room", room.HueGroup), zap.String("area_id", room.HASSAreaID), zap.Error(err))
 			entities = explicitTurnOffEntities(room)
 		}
+		entities, split := m.splitGroupsAround(room, entities, held)
 		kept := make(map[string][]string)
 		remaining := entities[:0]
 		for _, entityID := range entities {
@@ -1155,21 +1185,25 @@ func (m *Manager) turnOffRoom(ctx context.Context, room *RoomConfig, trigger str
 			reason = fmt.Sprintf("Turned off room while keeping held lights on: %v", kept)
 		}
 		if len(remaining) == 0 {
+			if len(nightLights) > 0 && !m.readOnly {
+				reason += m.turnOnAwayNightLight(ctx, room)
+			}
 			m.recordAction(room.HueGroup, "turn_off", reason, "", true, trigger)
 			return
 		}
 		// Only switch from area_id to entity_id when at least one entity in
-		// this room is held. If no held entity belongs to this room, keep the
-		// original area-based call so lights absent from the registry (disabled,
-		// briefly disconnected) are not silently missed.
-		if len(kept) > 0 {
+		// this room is held, or a group was split around one. If no held entity
+		// belongs to this room, keep the original area-based call so lights absent
+		// from the registry (disabled, briefly disconnected) are not silently missed.
+		if len(kept) > 0 || split {
 			serviceData = map[string]interface{}{"entity_id": remaining}
 		}
 	}
 
 	if m.readOnly {
 		m.logger.Info("READ-ONLY: Would turn off room", zap.String("room", room.HueGroup),
-			zap.Any("service_data", serviceData), zap.String("trigger", trigger))
+			zap.Any("service_data", serviceData), zap.Strings("away_night_lights", nightLights),
+			zap.String("trigger", trigger))
 		m.recordAction(room.HueGroup, "turn_off", "Would "+reason, "", true, trigger)
 		return
 	}
@@ -1193,8 +1227,99 @@ func (m *Manager) turnOffRoom(ctx context.Context, room *RoomConfig, trigger str
 	m.logger.Info("Room turned off successfully",
 		zap.String("room", room.HueGroup))
 
+	if len(nightLights) > 0 {
+		reason += m.turnOnAwayNightLight(ctx, room)
+	}
+
 	// Record action in shadow state
 	m.recordAction(room.HueGroup, "turn_off", reason, "", true, trigger)
+}
+
+// awayNightLightOwner names the away night light where held lights are logged.
+const awayNightLightOwner = "away night light"
+
+// awayNightLightActive reports whether nobody is home and it is dark outside. It is false when either
+// state cannot be read, so rooms then turn off fully.
+func (m *Manager) awayNightLightActive() bool {
+	if home, err := m.stateManager.GetBool("isAnyoneHome"); err != nil || home {
+		return false
+	}
+	dark, err := m.stateManager.GetBool("isDarkOutside")
+	return err == nil && dark
+}
+
+// turnOnAwayNightLight sets the room's away night lights to their low level. It returns a note to add
+// to the room's recorded action.
+func (m *Manager) turnOnAwayNightLight(ctx context.Context, room *RoomConfig) string {
+	n := room.AwayNightLight
+	data := map[string]interface{}{"entity_id": n.Lights, "brightness_pct": n.BrightnessPct}
+	if n.Kelvin > 0 {
+		data["color_temp_kelvin"] = n.Kelvin
+	}
+	if err := m.haClient.CallService(ctx, "light", "turn_on", data); err != nil {
+		m.logger.Error("Failed to turn on away night light", zap.String("room", room.HueGroup), zap.Error(err))
+		return "; away night light failed: " + err.Error()
+	}
+	m.logger.Info("Away night light on", zap.String("room", room.HueGroup), zap.Strings("lights", n.Lights),
+		zap.Float64("brightness_pct", n.BrightnessPct), zap.Int("kelvin", n.Kelvin))
+	return fmt.Sprintf("; away night light on at %g%%: %v", n.BrightnessPct, n.Lights)
+}
+
+// splitGroupsAround replaces each light group in entities that contains a kept light with the group's
+// members, so that turning the group off cannot turn a kept light off. The caller then drops the kept
+// members. It reports whether it split any group. A group whose state cannot be read is not split, so a
+// turn-off of that group can still reach the kept lights inside it.
+func (m *Manager) splitGroupsAround(room *RoomConfig, entities []string, keep map[string][]string) ([]string, bool) {
+	out := make([]string, 0, len(entities))
+	seen := make(map[string]bool, len(entities))
+	add := func(entityID string) {
+		if !seen[entityID] {
+			seen[entityID] = true
+			out = append(out, entityID)
+		}
+	}
+	split := false
+	for _, entityID := range entities {
+		members := m.groupMembers(entityID)
+		containsKept := false
+		for _, member := range members {
+			if _, ok := keep[member]; ok {
+				containsKept = true
+				break
+			}
+		}
+		if !containsKept {
+			add(entityID)
+			continue
+		}
+		split = true
+		m.logger.Info("Turning off a light group member by member to keep a light on",
+			zap.String("room", room.HueGroup), zap.String("group", entityID), zap.Strings("members", members))
+		for _, member := range members {
+			add(member)
+		}
+	}
+	return out, split
+}
+
+// groupMembers returns the member lights of a light group (its entity_id attribute), or nil for a
+// single light or a state that cannot be read.
+func (m *Manager) groupMembers(entityID string) []string {
+	st, err := m.haClient.GetState(entityID)
+	if err != nil || st == nil {
+		return nil
+	}
+	list, ok := st.Attributes["entity_id"].([]interface{})
+	if !ok {
+		return nil
+	}
+	members := make([]string, 0, len(list))
+	for _, member := range list {
+		if s, ok := member.(string); ok && s != entityID {
+			members = append(members, s)
+		}
+	}
+	return members
 }
 
 const areaEntityCacheTTL = 5 * time.Minute

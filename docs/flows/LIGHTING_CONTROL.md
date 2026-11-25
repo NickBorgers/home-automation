@@ -22,6 +22,10 @@ If a plugin turns on a light that can belong to a lighting room's Home Assistant
 entity for as long as it needs the light to remain on. With no active holds, lighting keeps the existing
 area-based service call unchanged.
 
+A light group (for example a Hue room) turns off every light in it. So when a group in the turn-off list
+contains a held light, lighting turns off the group's other members one by one instead of the group.
+Lighting finds a group's members in its `entity_id` state attribute.
+
 ## Lighting Scene Selection
 
 ```mermaid
@@ -395,6 +399,41 @@ flowchart TD
     style randomLights fill:#3498db,color:#fff
     style porchOn fill:#27ae60,color:#fff
 ```
+
+### Away night light
+
+A room can keep a few lights on at a very low level, instead of off, while nobody is home and it is dark
+outside. This gives just enough light to see shapes and movement in an empty, dark house. Configure it per
+room in `hue_config.yaml`:
+
+```yaml
+rooms:
+  - hue_group: Example Den        # made-up example
+    hass_area_id: example_den
+    conditions:
+      - action: off
+        variable: isAnyoneHomeAndAwake
+        value: false
+    away_night_light:
+      lights: [light.example_can_a]
+      brightness_pct: 1           # 1-100
+      kelvin: 3000                # optional; 0 or omitted sends no color temperature
+```
+
+How it works:
+
+- The night light is active only while `isAnyoneHome` is false and `isDarkOutside` is true. Someone home and
+  asleep does not count as away.
+- It acts only when the room's conditions turn the room off. When the room turns off, every other light in
+  the room turns off as usual. The night lights are left out of the turn-off. Then lighting turns them on at
+  `brightness_pct` and `kelvin`.
+- The night lights are treated like held lights (see "Cross-plugin light holds"). A light group that
+  contains a night light is turned off member by member. This applies to every room's turn-off, not only
+  the room that lists the light, because a light can also sit in another room's area or light group.
+- Changes to `isAnyoneHome` and `isDarkOutside` re-evaluate the room. When it gets light outside, or
+  someone is home and the room turns off, the night lights turn off with the rest of the room. When someone
+  comes home and the room turns on, the room's normal scene or lux control takes over the lights. So pick
+  night lights that the room's "on" path controls, for example lights in the room's lux-controlled cans.
 
 ## Related Documentation
 
