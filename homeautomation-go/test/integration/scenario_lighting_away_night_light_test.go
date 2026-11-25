@@ -81,10 +81,12 @@ func TestScenario_LightingAwayNightLight(t *testing.T) {
 	server.SetState("input_boolean.dark_outside", "on", nil)
 	waitForServiceCallSince(t, server, snapshot, "light", "turn_on", "the night light should turn on")
 
-	// THEN: the night light turns on at the configured level, and no turn-off covers it.
-	t.Log("THEN: the night light is on at 1% and 3000 K")
+	// THEN: the night light turns on at the configured level; the other room lights turn off.
+	t.Log("THEN: the night light is on at 1% and 3000 K, other lights off")
 	assertNightLightOn(t, server.GetServiceCallsSince(snapshot), "light.example_can_a", 1, 3000)
 	assertNightLightNotTurnedOff(t, server.GetServiceCallsSince(snapshot))
+	assertTurnOffCovers(t, server.GetServiceCallsSince(snapshot), "light.example_can_b", true)
+	assertTurnOffCovers(t, server.GetServiceCallsSince(snapshot), "light.example_lamp", true)
 
 	// WHEN: the day phase changes while the night light is active, so the room is turned off again.
 	t.Log("WHEN: the day phase changes while nobody is home in the dark")
