@@ -129,7 +129,9 @@ type luxRoomState struct {
 	// cans (confirmLuxHold). The loop sends nothing meanwhile, so a person's change is kept.
 	checking *luxHoldCheck
 	// lastReportAt is when the latest report from the cans arrived, on the plugin's clock. A hold
-	// check uses it to tell a fresh reading (arrived after the fade ended) from a stale one.
+	// check uses it to tell a fresh reading (arrived after the fade ended) from a stale one. For a
+	// light group that lists its members, the check uses each member's own report time instead
+	// (luxMembersTally): a fresh group report can still average stale members.
 	lastReportAt time.Time
 }
 
@@ -864,11 +866,19 @@ func (m *Manager) scheduleLuxHoldCheck(room *RoomConfig, st *luxRoomState, check
 // arrived after the fade ended (luxReportFresh): a bridge can report a light group minutes late.
 // The check waits up to luxFreshReportWait for such a report and gives up without holding when
 // none comes. When the read fails, the first report decides, so a person's change is not lost.
+// When the cans are a light group that lists its members, the decision after the fade is made per
+// member instead (luxMembersTally): a group report that arrived after the fade can still average
+// members whose own last report is from before the fade ended. When a member cannot be read, the
+// group's own report decides as above.
 // When the command answered a fresh turn-on (answersTurnOn) and the cans read on, the mismatch is
 // the turn-on's own level landing after the command, so the command is sent once more instead of
 // holding (resendLuxCommand).
 func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
 	s, err := m.haClient.GetState(room.LuxControl.Cans)
+	var members []*ha.State
+	if err == nil && s != nil && s.State == "on" {
+		members = m.readCansMembers(room, s)
+	}
 	action, _ := m.evaluateConditions(room)
 	now := m.clock.Now()
 
@@ -884,6 +894,7 @@ func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
 		return
 	}
 	reason := check.reason
+	freshOff, staleOff := 0, 0 // group members off the fade path, by whether they reported after the fade
 	if err == nil && s != nil {
 		settled := luxFadeSettled(st.cmd, now)
 		fresh := luxReportFresh(st.cmd, st.lastReportAt)
@@ -910,7 +921,50 @@ func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
 			return
 		}
 		waiting := now.Before(luxFadeEnd(st.cmd).Add(luxFreshReportWait))
-		if within && !fresh {
+		if members != nil && settled {
+			// The group's level is the average of its members' last reports, so judge each member.
+			freshOff, staleOff = luxMembersTally(room, st, members, now)
+			if staleOff > 0 {
+				// A member off the path last reported before the fade ended. It may not have
+				// reported its final level yet, so it is never enough to hold. Wait for it, and give
+				// up without holding when it does not report in time.
+				if waiting {
+					check.last = s
+					m.scheduleLuxHoldCheck(room, st, check)
+					m.luxMu.Unlock()
+					m.logger.Debug("Hold check waiting for group members that last reported during the fade",
+						zap.String("room", room.HueGroup), zap.Int("members", len(members)),
+						zap.Int("stale_members", staleOff), zap.Int("fresh_off_members", freshOff))
+					return
+				}
+				skipped := check.skipped
+				m.luxMu.Unlock()
+				m.logger.Info("Possible manual change not confirmed; no fresh report from the cans after the fade",
+					zap.String("room", room.HueGroup), zap.String("first_reason", check.reason),
+					zap.Duration("waited", luxFreshReportWait), zap.Int("members", len(members)),
+					zap.Int("stale_members", staleOff), zap.Int("fresh_off_members", freshOff))
+				if skipped {
+					m.luxEvaluate(room, "hold check gave up")
+				}
+				return
+			}
+			if freshOff == 0 {
+				// Every member is on the path: the group's report averaged members that have
+				// reported since.
+				skipped := check.skipped
+				m.luxMu.Unlock()
+				m.logger.Info("Possible manual change not confirmed; every group member is on the fade path",
+					zap.String("room", room.HueGroup), zap.String("first_reason", check.reason),
+					zap.Int("members", len(members)))
+				if skipped {
+					m.luxEvaluate(room, "hold check cleared")
+				}
+				return
+			}
+			// A member off the path reported after the fade ended, and no member off the path is
+			// stale: fresh evidence of a person's change. The group-level freshness tests below do
+			// not apply; a group still moving is read again before it holds.
+		} else if within && !fresh { // members == nil: single light or unreadable group; use group-level report
 			// The reading arrived before the fade ended, so it may show a level from early in the
 			// fade. It is never enough to hold. Wait for a fresh report, and give up without
 			// holding when none comes.
@@ -930,7 +984,7 @@ func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
 			}
 			return
 		}
-		if within && waiting && check.stale != nil && luxReportConverging(st.cmd, check.stale, s) {
+		if members == nil && within && waiting && check.stale != nil && luxReportConverging(st.cmd, check.stale, s) {
 			// A light group's state is built from its members' reports. When a bridge reports the
 			// members one at a time, minutes apart, a fresh group report may update only some of
 			// them, so it can sit between the stale level and the commanded one. Such a fresh
@@ -977,8 +1031,64 @@ func (m *Manager) confirmLuxHold(room *RoomConfig, check *luxHoldCheck) {
 		zap.Time("command_at", cmd.at),
 		zap.Time("transition_end", luxFadeEnd(cmd)),
 		zap.String("command_service", luxCommandService(cmd)),
-		zap.String("correlation_decision", "accepted: report origin is not a known automation"))
+		zap.String("correlation_decision", "accepted: report origin is not a known automation"),
+		zap.Int("members", len(members)),
+		zap.Int("stale_members", staleOff),
+		zap.Int("fresh_off_members", freshOff))
 	m.setLuxHoldHelper(room, true)
+}
+
+// readCansMembers reads the member lights of a light group from Home Assistant. A Hue room or
+// zone group lists its members in the entity_id attribute. It returns nil when the cans list no
+// members (a single light) or when any member cannot be read: the group's own report then decides.
+// Caller must not hold luxMu.
+func (m *Manager) readCansMembers(room *RoomConfig, group *ha.State) []*ha.State {
+	var ids []string
+	switch v := group.Attributes["entity_id"].(type) {
+	case []interface{}:
+		for _, id := range v {
+			if s, ok := id.(string); ok {
+				ids = append(ids, s)
+			}
+		}
+	case []string:
+		ids = v
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	members := make([]*ha.State, 0, len(ids))
+	for _, id := range ids {
+		s, err := m.haClient.GetState(id)
+		if err != nil || s == nil {
+			m.logger.Debug("Could not read a group member; the group's report decides the hold check",
+				zap.String("room", room.HueGroup), zap.String("member", id), zap.Error(err))
+			return nil
+		}
+		members = append(members, s)
+	}
+	return members
+}
+
+// luxMembersTally counts the members of a light group that are off the fade path, split by whether
+// each one's own last report arrived after the fade ended (fresh) or before (stale). A member on
+// the path, or at the commanded values within the normal tolerances, agrees however old its
+// report is: a bulb that reached its target sends no new report. A stale member off the path may
+// show a level from during the fade, or from an earlier command, so it proves nothing about the
+// final level. A member's report time is Home Assistant's last_updated for it.
+// Caller must hold luxMu.
+func luxMembersTally(room *RoomConfig, st *luxRoomState, members []*ha.State, now time.Time) (freshOff, staleOff int) {
+	for _, s := range members {
+		if cansChangeReason(room, st, s, now) == "" {
+			continue
+		}
+		if luxReportFresh(st.cmd, s.LastUpdated) {
+			freshOff++
+		} else {
+			staleOff++
+		}
+	}
+	return freshOff, staleOff
 }
 
 // resendLuxCommand sends the current command's targets once more, stamped now with a short
