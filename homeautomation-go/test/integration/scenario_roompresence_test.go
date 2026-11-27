@@ -570,7 +570,10 @@ func TestScenario_RoomPresence_NobodyHomeRemovesLaterFalseTokens(t *testing.T) {
 		in := mgr.GetShadowState().Inputs.Current
 		return in["isAnyoneHome"] == false && in["isHaveGuests"] == false
 	}, 5*time.Second, 10*time.Millisecond)
-	time.Sleep(delay + 1200*time.Millisecond) // past the delay and the next tick
+	// Wait for the first nobody-home sweep to fire before planting false tokens. Without this wait the
+	// false tokens would be cleared by the first sweep, not by the ongoing per-token age check that this
+	// test targets. The extra 1200 ms gives the ticker (1 s period) time to fire after the delay expires.
+	time.Sleep(delay + 1200*time.Millisecond)
 
 	t.Log("WHEN: a false detection appears in the kitchen doorway and walks into the kitchen")
 	publishFrigate(t, server, "new", "ghost1", "cam_kitchen", []string{})
