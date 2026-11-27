@@ -486,6 +486,120 @@ func TestNobodyHome_ClearsTokensAfterDelay(t *testing.T) {
 	s.tokens(0)
 }
 
+// awayScene starts a scene where nobody has been home since 10 s, and the first nobody-home sweep ran at 310 s.
+func awayScene(t *testing.T) *scene {
+	s := newScene(t)
+	s.tr.SetPeople(at(10), 0, false, false)
+	s.tick(10 + 5*60)
+	require.True(t, s.tr.clearedAway)
+	return s
+}
+
+// A false detection in the empty house after the first sweep makes a token. It goes once it is
+// nobody_home_delay old, long before the kitchen's 20 min idle limit.
+func TestNobodyHome_RemovesLaterTokenOnceOldEnough(t *testing.T) {
+	s := awayScene(t)
+	s.walk(400, "ghost", "cam_kitchen", "kitchen_to_hall", "kitchen") // token made at 401
+	s.occupied("kitchen")
+	s.tick(401 + 5*60 - 1)
+	s.occupied("kitchen")
+	s.tick(401 + 5*60)
+	s.empty("kitchen")
+	s.tokens(0)
+	require.NotEmpty(t, s.tr.removed)
+	assert.Equal(t, "nobody home", s.tr.removed[len(s.tr.removed)-1].Reason)
+}
+
+// The bedroom has no idle limit, so before this a false detection could leave a token there for ever. Age
+// counts from when the token was made: the same false detection firing again moves the token out and back,
+// and that does not make it younger.
+func TestNobodyHome_RemovesTokenInAreaWithNoIdleLimit(t *testing.T) {
+	s := awayScene(t)
+	require.Nil(t, s.tr.cfg.Areas["bedroom"].IdleLimit)
+	s.walk(400, "ghost1", "cam_hall", "hall_to_bedroom") // token made in the hall at 401, in the bedroom at 402
+	s.occupied("bedroom")
+	s.walk(600, "ghost2", "cam_hall", "hall_to_bedroom") // takes the same token out and back
+	s.occupied("bedroom")
+	s.tokens(1)
+	s.tick(401 + 5*60 - 1)
+	s.occupied("bedroom")
+	s.tick(401 + 5*60)
+	s.empty("bedroom")
+}
+
+// A bed sensor that turns on in the empty house makes a token. It goes too.
+func TestNobodyHome_RemovesBedSensorToken(t *testing.T) {
+	s := awayScene(t)
+	s.tr.SensorChanged(at(400), "binary_sensor.example_bed_presence", "off", "on")
+	s.occupied("bedroom")
+	s.tick(400 + 5*60)
+	s.empty("bedroom")
+}
+
+// With someone home, the age of a token does not matter.
+func TestNobodyHome_KeepsTokensWhileSomeoneHome(t *testing.T) {
+	s := newScene(t)
+	s.tr.SetPeople(at(0), 1, false, true)
+	s.walk(10, "a", "cam_hall", "hall_to_bedroom")
+	for sec := 20.0; sec <= 3*3600; sec += 60 {
+		s.tick(sec)
+	}
+	s.occupied("bedroom")
+
+	// The same after an away period whose first sweep already ran.
+	s = awayScene(t)
+	s.tr.SetPeople(at(350), 1, false, true)
+	s.walk(400, "a", "cam_hall", "hall_to_bedroom")
+	for sec := 410.0; sec <= 3*3600; sec += 60 {
+		s.tick(sec)
+	}
+	s.occupied("bedroom")
+}
+
+// Someone who comes home before their token is nobody_home_delay old keeps it.
+func TestNobodyHome_ArrivalBeforeDelayKeepsToken(t *testing.T) {
+	s := awayScene(t)
+	s.walk(400, "a", "cam_hall", "hall_to_bedroom") // token made at 401
+	s.tick(600)
+	s.tr.SetPeople(at(650), 1, false, true)
+	for sec := 660.0; sec <= 3*3600; sec += 60 {
+		s.tick(sec)
+	}
+	s.occupied("bedroom")
+}
+
+// Guests are not counted in isAnyoneHome. While they are flagged, only the first sweep runs, so a guest
+// walking about keeps their token.
+func TestNobodyHome_GuestsKeepLaterTokens(t *testing.T) {
+	s := newScene(t)
+	s.seed(0, "kitchen")
+	s.tr.SetPeople(at(10), 0, true, false)
+	s.tick(10 + 5*60)
+	s.tokens(0) // the first sweep runs, as before
+	s.walk(400, "g", "cam_hall", "hall_to_bedroom")
+	s.tick(401 + 5*60)
+	s.tick(3600)
+	s.occupied("bedroom")
+
+	// When the guest flag clears, a token already old enough goes at the next tick.
+	s.tr.SetPeople(at(3601), 0, false, false)
+	s.tick(3602)
+	s.empty("bedroom")
+}
+
+// After a restart the age of a restored token does not clear it at once: nobody home starts counting
+// from the first people update, and the first sweep comes nobody_home_delay later, as before.
+func TestNobodyHome_RestoredTokenWaitsForFirstSweep(t *testing.T) {
+	s := newScene(t)
+	s.tr.Restore(at(0), []KeptToken{{Area: "bedroom", Since: at(-3600)}})
+	s.tr.SetPeople(at(1), 0, false, false)
+	s.tick(2)
+	s.tick(1 + 5*60 - 1)
+	s.occupied("bedroom")
+	s.tick(1 + 5*60)
+	s.empty("bedroom")
+}
+
 // The people count does not cap tokens. Guests are not counted, and a dropped token can be the wrong person.
 func TestPeopleCount_DoesNotRemoveTokens(t *testing.T) {
 	s := newScene(t)

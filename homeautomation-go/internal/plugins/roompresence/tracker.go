@@ -48,6 +48,7 @@ type FrigateObject struct {
 type token struct {
 	id       string
 	area     string
+	created  time.Time // when the token was made; a move or a sighting does not change it
 	since    time.Time // when the token arrived in its area
 	lastSeen time.Time // when a track holding it last reported
 	camera   string
@@ -503,10 +504,19 @@ func (t *Tracker) Tick(now time.Time) {
 		}
 	}
 
-	if t.peopleKnown && !t.anyoneHome && !t.clearedAway && now.Sub(t.nobodySince) >= t.cfg.NobodyHomeDelay {
+	// Nobody home: the first sweep removes every token. After it, while nobody is home and no guests are
+	// flagged, a token is removed once it is nobody_home_delay old. A false detection in the empty house then
+	// cannot keep a token until its idle limit, or for ever in an area with no idle limit. Age counts from
+	// when the token was made, not from when it moved or was last seen, so a false detection that keeps
+	// firing cannot keep its token.
+	if t.peopleKnown && !t.anyoneHome && now.Sub(t.nobodySince) >= t.cfg.NobodyHomeDelay {
+		first := !t.clearedAway
 		t.clearedAway = true
 		for _, id := range sortedKeys(t.tokens) {
-			t.removeToken(now, t.tokens[id], "nobody home")
+			tok := t.tokens[id]
+			if first || (!t.guests && now.Sub(tok.created) >= t.cfg.NobodyHomeDelay) {
+				t.removeToken(now, tok, "nobody home")
+			}
 		}
 	}
 }
@@ -567,6 +577,7 @@ func (t *Tracker) Restore(now time.Time, kept []KeptToken) int {
 		}
 		tok := t.newToken(now, k.Area, "", "restored after restart", false)
 		if k.Since.Before(now) {
+			tok.created = k.Since
 			tok.since = k.Since
 			tok.lastSeen = k.Since
 		}
@@ -1029,6 +1040,7 @@ func (t *Tracker) newToken(now time.Time, area, cam, reason string, entry bool) 
 	tok := &token{
 		id:       fmt.Sprintf("t%d", t.nextToken),
 		area:     area,
+		created:  now,
 		since:    now,
 		lastSeen: now,
 		camera:   cam,

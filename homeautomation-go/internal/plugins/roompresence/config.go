@@ -62,7 +62,9 @@ type Config struct {
 	// handoff_window.
 	TrackSilenceTimeout time.Duration `yaml:"track_silence_timeout"`
 
-	// NobodyHomeDelay is how long isAnyoneHome must stay false before every token is removed.
+	// NobodyHomeDelay is how long isAnyoneHome must stay false before every token is removed. While it stays
+	// false and no guests are flagged, a token is also removed once it is this old, so a token made in the
+	// empty house lives at most this long.
 	NobodyHomeDelay time.Duration `yaml:"nobody_home_delay"`
 
 	// ExitWindow is how long before or after a token arrives in an area with exit sensors one of them may
