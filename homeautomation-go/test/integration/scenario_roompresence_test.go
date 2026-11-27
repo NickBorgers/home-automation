@@ -546,3 +546,59 @@ func TestScenario_RoomPresence_OutputOffDelayIgnoresBorderFlicker(t *testing.T) 
 	waitForServerState(t, server, "input_boolean.kitchen_occupied", "off")
 	assert.GreaterOrEqual(t, time.Since(movedAt), delay, "off waits for the delay")
 }
+
+// GIVEN nobody is home, has been for longer than nobody_home_delay, and no guests are flagged
+// WHEN a false detection puts a token in the kitchen, and another moves one into the bedroom, which has no
+// idle limit
+// THEN both tokens go once they are nobody_home_delay old, and isKitchenOccupied turns off
+//
+// INVARIANT: while nobody is home, a token lives at most nobody_home_delay plus one tick. Before, only the first
+// sweep after everyone left removed tokens, so a later false detection kept the kitchen on for its 20 min idle
+// limit and the bedroom occupied for ever.
+func TestScenario_RoomPresence_NobodyHomeRemovesLaterFalseTokens(t *testing.T) {
+	const delay = 2 * time.Second // stands in for the 5 min default
+	server, mgr, cleanup := setupRoomPresenceScenario(t, func(cfg *roompresence.Config) {
+		cfg.NobodyHomeDelay = delay
+	})
+	defer cleanup()
+
+	t.Log("GIVEN: nobody is home, no guests are flagged, and the first nobody-home sweep has run")
+	server.SetState("input_boolean.kitchen_occupied", "off", nil)
+	server.SetState("input_boolean.have_guests", "off", nil)
+	server.SetState("input_boolean.anyone_home", "off", nil)
+	require.Eventually(t, func() bool {
+		in := mgr.GetShadowState().Inputs.Current
+		return in["isAnyoneHome"] == false && in["isHaveGuests"] == false
+	}, 5*time.Second, 10*time.Millisecond)
+	// Wait for the first nobody-home sweep to fire before planting false tokens. Without this wait the
+	// false tokens would be cleared by the first sweep, not by the ongoing per-token age check that this
+	// test targets. The extra 1200 ms gives the ticker (1 s period) time to fire after the delay expires.
+	time.Sleep(delay + 1200*time.Millisecond)
+
+	t.Log("WHEN: a false detection appears in the kitchen doorway and walks into the kitchen")
+	publishFrigate(t, server, "new", "ghost1", "cam_kitchen", []string{})
+	publishFrigate(t, server, "update", "ghost1", "cam_kitchen", []string{"kitchen_to_hall"}, "kitchen_to_hall")
+	publishFrigate(t, server, "update", "ghost1", "cam_kitchen", []string{"kitchen_to_hall", "kitchen"}, "kitchen")
+	publishFrigate(t, server, "end", "ghost1", "cam_kitchen", []string{"kitchen_to_hall", "kitchen"}, "kitchen")
+	madeAt := time.Now()
+
+	t.Log("AND WHEN: another false detection in the hall ends in the bedroom doorway")
+	publishFrigate(t, server, "new", "ghost2", "cam_hall", []string{})
+	publishFrigate(t, server, "update", "ghost2", "cam_hall", []string{"hall_to_bedroom"}, "hall_to_bedroom")
+	publishFrigate(t, server, "end", "ghost2", "cam_hall", []string{"hall_to_bedroom"}, "hall_to_bedroom")
+	waitForServerState(t, server, "input_boolean.kitchen_occupied", "on")
+	require.Eventually(t, func() bool { return mgr.Occupied("bedroom") && mgr.Occupied("kitchen") },
+		5*time.Second, 10*time.Millisecond)
+
+	t.Log("THEN: both tokens go once they are nobody_home_delay old, and isKitchenOccupied turns off")
+	require.Eventually(t, func() bool { return !mgr.Occupied("bedroom") && !mgr.Occupied("kitchen") },
+		delay+3*time.Second, 50*time.Millisecond)
+	assert.GreaterOrEqual(t, time.Since(madeAt), delay-100*time.Millisecond, "a token lives for the delay")
+	waitForServerState(t, server, "input_boolean.kitchen_occupied", "off")
+	reasons := map[string]string{}
+	for _, r := range mgr.GetShadowState().Outputs.Removed {
+		reasons[r.Area] = r.Reason
+	}
+	assert.Equal(t, "nobody home", reasons["kitchen"])
+	assert.Equal(t, "nobody home", reasons["bedroom"])
+}

@@ -188,7 +188,9 @@ sleep and wake state.
 
 Other evidence also moves tokens:
 
-- **Nobody home** (`isAnyoneHome` false for `nobody_home_delay`, default 5 min): remove every token.
+- **Nobody home** (`isAnyoneHome` false for `nobody_home_delay`, default 5 min): remove every token. While
+  `isAnyoneHome` stays false and `isHaveGuests` is off, also remove each later token once it is
+  `nobody_home_delay` old. See "Nobody home" below.
 - **A bed presence sensor** listed in the area's `bed_sensors` turns on: make sure the area holds at least
   one token.
 - **A presence sensor** listed in the area's `presence_sensors` is on: make sure the area holds at least one
@@ -199,6 +201,25 @@ Other evidence also moves tokens:
   door went out. See below.
 - **An arrival**: an approach sensor, then an exit sensor, then an entry sensor. Someone walked up to the
   door and came in, so the area gets a token. See "Coming in".
+
+#### Nobody home
+
+`isAnyoneHome` counts the owners and the assistant, not guests. When it has been false for `nobody_home_delay`,
+the first sweep removes every token, guests or not. A false detection while nobody is home can make a token
+after that sweep. Without more, that token would stay until its area's idle limit, and in an area with no idle
+limit for ever. So, while `isAnyoneHome` stays false:
+
+- Each tick (once a second) removes every token that is at least `nobody_home_delay` old. The reason is
+  "nobody home", as for the first sweep. A token made while nobody is home lives at most `nobody_home_delay`
+  plus one tick. With `output_off_delay`, its outputs turn off that much later.
+- Age counts from when the token was made. Moving to another area or being seen again does not reset it, so a
+  false detection that keeps firing cannot keep its token. A restored token counts from its first arrival, but
+  after a restart the first sweep still waits `nobody_home_delay` from the first people update.
+- While `isHaveGuests` is on, only the first sweep runs. Guests are not in `isAnyoneHome`, and a guest walking
+  about keeps their token until its idle limit. When the flag turns off, a token that is already old enough
+  goes at the next tick.
+- Bed, presence and door sensors can still make a token in an empty house. It goes the same way.
+- When `isAnyoneHome` turns true before a token is `nobody_home_delay` old, the token stays, as before.
 
 #### Secondary signals
 
@@ -467,6 +488,9 @@ room_presence:
 - `output_off_delay` (optional, default 0s = off) is how long an output must stay false before it turns from
   true to false. It must not be negative. See [Off delay](#off-delay).
 - An area with no `idle_limit` never expires. Nobody-home and the people count still remove its tokens.
+- `nobody_home_delay` (default 5m) is how long `isAnyoneHome` must stay false before every token is removed.
+  After that, while nobody is home and no guests are flagged, a token is removed once it is this old. See
+  "Nobody home" under [How a token goes away](#how-a-token-goes-away).
 - `cameras` (optional) maps a camera to the areas it sees. The plugin also learns this from the zones each
   camera reports. It decides which areas freeze when a camera stops.
 - `token_store` (optional) is an `input_text` helper that keeps unseen tokens across a restart, and
